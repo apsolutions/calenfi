@@ -45,8 +45,15 @@ Future<void> main(List<String> argv) async {
   final flags = _parseFlags(argv.skip(1).toList());
 
   // Секреты (пароли, OAuth-токены) — из системного keyring, тот же, что у
-  // приложения: и здесь, и там бэкенд ходит в штатную утилиту ОС.
-  await SecretStore.instance.warmUp();
+  // приложения: и здесь, и там бэкенд ходит в штатную утилиту ОС
+  // (Linux — `secret-tool`, macOS — `security`). Каждый запуск CLI — отдельный
+  // процесс, кэша между ними нет, поэтому keyring дёргаем ТОЛЬКО для команд,
+  // которым секреты действительно нужны: иначе серия локальных create/delete
+  // устраивает шквал запросов к связке ключей (и диалогов разблокировки).
+  const needSecrets = {'sync', 'secret-set'};
+  if (needSecrets.contains(command)) {
+    await SecretStore.instance.warmUp();
+  }
 
   final db = AppDatabase(NativeDatabase(File(_dbPath(flags['db']))));
   final events = EventRepository(db);
@@ -235,7 +242,8 @@ Future<void> _freeslots(EventRepository repo, Map<String, String> f) async {
 
 Future<void> _create(EventRepository events, AccountRepository accounts,
     Map<String, String> f) async {
-  _require(f, ['title', 'start', 'end']);
+  _require(f, ['title', 'start']);
+  if (f['all-day'] != 'true') _require(f, ['end']);
   final cals = await accounts.watchCalendars().first;
   if (cals.isEmpty) return _fail('no calendars; connect an account first');
 
@@ -247,19 +255,48 @@ Future<void> _create(EventRepository events, AccountRepository accounts,
     final acc = (await accounts.allAccounts())
         .firstWhere((a) => a.email == f['account'] || a.id == f['account'],
             orElse: () => throw 'account not found: ${f['account']}');
-    cal = cals.firstWhere((c) => c.accountId == acc.id,
-        orElse: () => throw 'no calendar for account ${acc.email}');
+    // Основной календарь аккаунта, а не первый попавшийся: иначе событие
+    // молча уезжает в чужой подписной календарь того же аккаунта.
+    final own = cals.where((c) => c.accountId == acc.id && !c.readOnly).toList();
+    if (own.isEmpty) throw 'no writable calendar for account ${acc.email}';
+    cal = own.firstWhere((c) => c.isPrimary,
+        orElse: () => own.firstWhere(
+            (c) => c.id.endsWith('|${acc.email}') || c.name == acc.email,
+            orElse: () => own.first));
   } else {
-    cal = cals.firstWhere((c) => c.isPrimary, orElse: () => cals.first);
+    final writable = cals.where((c) => !c.readOnly).toList();
+    if (writable.isEmpty) throw 'no writable calendars';
+    cal = writable.firstWhere((c) => c.isPrimary, orElse: () => writable.first);
   }
+  if (cal.readOnly) throw 'calendar is read-only: ${cal.id}';
 
   final id = _uuid.v4();
+  // --all-day: --start/--end принимают дату (2026-09-22) или ISO; время
+  // отбрасывается, конец — эксклюзивная полночь (как в редакторе приложения).
+  // Если --end не задан, событие занимает один день.
+  final allDay = f['all-day'] == 'true';
+  final DateTime start;
+  final DateTime end;
+  if (allDay) {
+    final s = DateTime.parse(f['start']!);
+    final e = f['end'] != null ? DateTime.parse(f['end']!) : s;
+    final s0 = DateTime(s.year, s.month, s.day);
+    var e0 = DateTime(e.year, e.month, e.day);
+    if (!e0.isAfter(s0)) e0 = DateTime(s0.year, s0.month, s0.day + 1);
+    start = s0.toUtc();
+    end = e0.toUtc();
+  } else {
+    start = DateTime.parse(f['start']!).toUtc();
+    end = DateTime.parse(f['end']!).toUtc();
+  }
+  if (!end.isAfter(start)) throw 'end must be after start';
   final event = CalendarEvent(
     id: id,
     calendarId: cal.id,
     title: f['title']!,
-    startUtc: DateTime.parse(f['start']!).toUtc(),
-    endUtc: DateTime.parse(f['end']!).toUtc(),
+    startUtc: start,
+    endUtc: end,
+    allDay: allDay,
     location: f['location'],
     description: f['description'],
     // Повторяющаяся серия: --rrule "FREQ=WEEKLY;BYDAY=WE;UNTIL=20270731T235959Z"
@@ -285,14 +322,26 @@ Future<void> _update(EventRepository events, Map<String, String> f) async {
   _require(f, ['id']);
   final e = await events.getById(f['id']!);
   if (e == null) return _fail('event not found: ${f['id']}');
+  // --all-day true|false переключает режим; при true даты обрезаются до полуночи.
+  final allDay = f['all-day'] == null ? e.allDay : f['all-day'] == 'true';
+  DateTime? parse(String? v) {
+    if (v == null) return null;
+    final d = DateTime.parse(v);
+    return (allDay ? DateTime(d.year, d.month, d.day) : d).toUtc();
+  }
+
   final updated = e.copyWith(
     title: f['title'],
-    startUtc: f['start'] != null ? DateTime.parse(f['start']!).toUtc() : null,
-    endUtc: f['end'] != null ? DateTime.parse(f['end']!).toUtc() : null,
+    allDay: allDay,
+    startUtc: parse(f['start']),
+    endUtc: parse(f['end']),
     location: f['location'],
     description: f['description'],
     attendees: f['attendees'] != null ? _parseAttendees(f['attendees']) : null,
   );
+  if (!updated.endUtc.isAfter(updated.startUtc)) {
+    throw 'end must be after start';
+  }
   await events.putLocalDirty(updated);
   await events.enqueue('update', updated.id);
   _ok({'updated': _eventJson(updated), 'note': 'queued; syncs when app runs'});
@@ -582,10 +631,12 @@ Calenfi Agent CLI — JSON-интерфейс к локальному кален
   busy      --from ISO --to ISO                          интервалы занятости (free/busy)
   freeslots --from ISO --to ISO --duration MIN [--day-start 10 --day-end 20]
   create    --title T --start ISO --end ISO [--calendar ID|--account EMAIL]
+            [--all-day (тогда --start/--end — даты, --end необязателен)]
             [--location L --description D --attendees a@x,b@y --room room@x
              --rrule "FREQ=WEEKLY;BYDAY=MO,WE" (повторение, RFC 5545)
              --conference meet|teams|zoom|telemost]
-  update    --id ID [--title --start --end --location --description]
+  update    --id ID [--title --start --end --all-day true|false --location
+                     --description]
   delete    --id ID
   rsvp      --id ID --response accepted|declined|tentative
   accounts                                               список учётных записей

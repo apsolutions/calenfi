@@ -40,12 +40,21 @@ dart run calenfi:calenfi <command> [--flags]   # из корня проекта
 
 | Команда | Флаги |
 |---|---|
-| `create` | `--title T --start ISO --end ISO` + опц. `--calendar ID` \| `--account EMAIL`, `--location`, `--description`, `--attendees a@x,b@y`, `--conference meet\|teams\|zoom\|telemost`, `--rrule "FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20270101T000000Z"` (повторение, RFC 5545) |
-| `update` | `--id ID` + любые из `--title --start --end --location --description` |
+| `create` | `--title T --start ISO --end ISO` + `--all-day` (тогда `--start`/`--end` — даты `2026-09-22`, время отбрасывается, `--end` необязателен = один день) + опц. `--calendar ID` \| `--account EMAIL`, `--location`, `--description`, `--attendees a@x,b@y`, `--conference meet\|teams\|zoom\|telemost`, `--rrule "FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20270101T000000Z"` (повторение, RFC 5545) |
+| `update` | `--id ID` + любые из `--title --start --end --location --description`, `--all-day true|false` (переключает режим; при `true` даты обрезаются до полуночи) |
 | `delete` | `--id ID` |
 | `rsvp` | `--id ID --response accepted\|declined\|tentative` |
 
 Если не указать `--calendar`/`--account`, событие создаётся в основном (primary) календаре.
+При `--account EMAIL` выбирается **основной** календарь этого аккаунта (primary, иначе тот, чей
+id/имя совпадает с почтой) — раньше брался первый попавшийся, и событие молча уезжало в чужой
+подписной календарь того же аккаунта. Надёжнее всего указывать `--calendar` явно: id виден
+в выводе `calendars`. Календари только для чтения отвергаются с ошибкой.
+
+**Событие на весь день.** `--all-day --start 2026-09-22` → локальная полночь 22.09 …
+эксклюзивная полночь 23.09, `allDay=true`. В выводе это UTC-момент со сдвигом на пояс
+(в GMT+3 — `2026-09-21T21:00:00Z`), так и должно быть: приложение и провайдеры
+(Google `date`, EWS `IsAllDayEvent`) читают это как «весь день 22 сентября».
 
 ## Синхронизация
 
