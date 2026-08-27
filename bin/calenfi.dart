@@ -33,7 +33,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-const _appId = 'io.github.karpovilia.calenfi';
+const _appId = 'ru.apsolutions.calenfi';
 const _uuid = Uuid();
 
 Future<void> main(List<String> argv) async {

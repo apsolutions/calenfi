@@ -1,7 +1,7 @@
 # Calenfi Agent API (CLI)
 
 JSON-интерфейс над локальным календарём Calenfi для LLM-агентов. **Только Linux/Arch.**
-Работает с той же локальной БД, что и приложение (`~/.local/share/io.github.karpovilia.calenfi/calenfi.sqlite`).
+Работает с той же локальной БД, что и приложение (`~/.local/share/ru.apsolutions.calenfi/calenfi.sqlite`).
 
 ## Запуск
 

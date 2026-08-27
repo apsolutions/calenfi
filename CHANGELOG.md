@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-27
+
+### Changed
+- **Application identifier unified to `ru.apsolutions.calenfi`** across all
+  platforms — Android `applicationId`/namespace, Linux `APPLICATION_ID`, macOS
+  bundle id and Windows `CompanyName` (`apsolutions`). This relocates the
+  per-user data directory accordingly (e.g. `~/.local/share/ru.apsolutions.calenfi`
+  on Linux); a build with the previous id will not upgrade over this one.
+
+### Fixed
+- Windows/desktop app icon now ships the current **Vitruvian 'C'** artwork in
+  released builds (the new icon landed after v0.3.0 and had never been packaged).
+
+### Added
+- Agent CLI: `--all-day` for `create`/`update`, primary-calendar targeting for
+  `--account`, and lazy keyring access (secrets read only by commands that need
+  them).
+
 ## [0.3.0] — 2026-07-25
 
 ### Added

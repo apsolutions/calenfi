@@ -1,4 +1,4 @@
-package io.github.karpovilia.calenfi
+package ru.apsolutions.calenfi
 
 import android.content.Context
 import android.content.Intent

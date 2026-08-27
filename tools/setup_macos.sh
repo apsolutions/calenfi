@@ -17,8 +17,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # корень проекта
-ORG="io.github.karpovilia"
-BUNDLE_ID="io.github.karpovilia.calenfi"   # совпадает с PRODUCT_BUNDLE_IDENTIFIER, который ставит flutter create
+ORG="ru.apsolutions"
+BUNDLE_ID="ru.apsolutions.calenfi"   # совпадает с PRODUCT_BUNDLE_IDENTIFIER, который ставит flutter create
 
 # --- 0. Проверки окружения ---------------------------------------------------
 if [[ "$(uname)" != "Darwin" ]]; then
