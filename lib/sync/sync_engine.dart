@@ -115,9 +115,11 @@ class SyncEngine {
     // ВАЖНО: тело — блок, а не `=> _accountInFlight.remove(...)`. Стрелка вернула
     // бы результат Map.remove() — а это и есть сама завершающаяся Future, и
     // whenComplete стал бы ждать её же → самодедлок (Future ждёт саму себя).
-    return _accountInFlight[acc.id] ??= _syncAccountTracked(acc).whenComplete(() {
-      _accountInFlight.remove(acc.id);
-    });
+    return _accountInFlight[acc.id] ??= _syncAccountTracked(acc).whenComplete(
+      () {
+        _accountInFlight.remove(acc.id);
+      },
+    );
   }
 
   Future<AccountSyncReport> _syncAccountTracked(Account acc) async {
@@ -130,7 +132,10 @@ class SyncEngine {
         const Duration(seconds: 150),
         onTimeout: () async {
           await accounts.recordSyncFailure(
-              acc.id, AccountStatus.syncError, 'Синхронизация превысила лимит времени');
+            acc.id,
+            AccountStatus.syncError,
+            'Синхронизация превысила лимит времени',
+          );
           return AccountSyncReport(acc.id, error: 'timeout');
         },
       );
@@ -148,8 +153,11 @@ class SyncEngine {
     // НЕ делаем вид, что синхронизировано: помечаем «не подключён», чтобы
     // пользователь видел реальный статус, а не устаревшие данные (FR-A6).
     if (provider is EmptyProvider) {
-      await accounts.recordSyncFailure(acc.id, AccountStatus.needsReconnect,
-          'Нет учётных данных на устройстве — аккаунт не синхронизируется');
+      await accounts.recordSyncFailure(
+        acc.id,
+        AccountStatus.needsReconnect,
+        'Нет учётных данных на устройстве — аккаунт не синхронизируется',
+      );
       return AccountSyncReport(acc.id, error: 'not connected');
     }
 
@@ -177,9 +185,16 @@ class SyncEngine {
         // пользователь видел: изменение НЕ сохранилось (не молчим).
         final pushError = await _processOutbox(acc, provider);
 
+        // Перечитываем очередь ПОСЛЕ push: успешные задания уже удалены,
+        // rekey обновил eventId, а неуспешные update/delete/rsvp/create должны
+        // пережить pull без потери локальной версии.
+        final protectedIds = (await events.pendingOutbox())
+            .map((item) => item.eventId)
+            .toSet();
+
         // 3) pull по каждому календарю
         for (final cal in cals) {
-          await _pullCalendar(acc, provider, cal);
+          await _pullCalendar(acc, provider, cal, protectedIds);
         }
 
         // 4) подчистить «призраков» — UUID-копии, не удалённые после создания,
@@ -188,7 +203,10 @@ class SyncEngine {
 
         if (pushError != null) {
           await accounts.recordSyncFailure(
-              acc.id, AccountStatus.syncError, pushError);
+            acc.id,
+            AccountStatus.syncError,
+            pushError,
+          );
           return AccountSyncReport(acc.id, error: pushError);
         }
         await accounts.recordSyncSuccess(acc.id, DateTime.now().toUtc());
@@ -205,8 +223,8 @@ class SyncEngine {
     final status = lastErr is TokenExpiredException
         ? AccountStatus.needsReconnect
         : _isNetwork(lastErr)
-            ? AccountStatus.offline
-            : AccountStatus.syncError;
+        ? AccountStatus.offline
+        : AccountStatus.syncError;
     await accounts.recordSyncFailure(acc.id, status, _describe(lastErr));
     return AccountSyncReport(acc.id, error: lastErr);
   }
@@ -231,7 +249,11 @@ class SyncEngine {
   }
 
   Future<void> _pullCalendar(
-      Account acc, CalendarProvider provider, Calendar cal) async {
+    Account acc,
+    CalendarProvider provider,
+    Calendar cal,
+    Set<String> protectedIds,
+  ) async {
     final result = await provider.incrementalSync(acc, cal, cal.syncState);
     // Всё применяем ОДНОЙ транзакцией (upsert + tombstone + сверка окна), чтобы
     // события не мигали в UI между отдельными записями. Сверка: [upserts] —
@@ -242,6 +264,7 @@ class SyncEngine {
       calendarId: cal.id,
       upserts: result.upserts,
       deletedProviderIds: result.deletedIds,
+      protectedIds: protectedIds,
       windowStart: window?.startUtc,
       windowEnd: window?.endUtc,
       keepIds: window != null
@@ -270,7 +293,9 @@ class SyncEngine {
         final name = (dn != null && dn.isNotEmpty) ? dn : email;
         try {
           await cr.addIfAbsent(email: email, displayName: name);
-        } catch (_) {/* пополнение справочника — best-effort */}
+        } catch (_) {
+          /* пополнение справочника — best-effort */
+        }
       }
     }
   }
@@ -284,20 +309,34 @@ class SyncEngine {
   /// иначе null. Ошибку поднимаем в [_syncAccount], чтобы статус стал error.
   Future<String?> _processOutbox(Account acc, CalendarProvider provider) async {
     final pending = await events.pendingOutbox();
+    // pending — snapshot. Если первый create/update канонизирует id,
+    // следующие элементы этого уже загруженного snapshot всё ещё
+    // содержат old id. Алиасы дополняют транзакционный retarget в БД.
+    final aliases = <String, String>{};
+    String resolveEventId(String id) {
+      final seen = <String>{};
+      var resolved = id;
+      while (seen.add(resolved) && aliases.containsKey(resolved)) {
+        resolved = aliases[resolved]!;
+      }
+      return resolved;
+    }
+
     String? failure;
     for (final item in pending) {
+      final effectiveEventId = resolveEventId(item.eventId);
       // Задание уже исчерпало попытки — не долбим сервер молча; ошибка уже
       // отражена в статусе аккаунта (см. catch ниже). Ждём ручного действия.
       if (item.retryCount >= _maxOutboxRetries) {
         // Но принадлежность СВОЕМУ аккаунту всё равно проверим для отчёта.
-        final ev = await events.getById(item.eventId);
+        final ev = await events.getById(effectiveEventId);
         if (item.op == 'create' || ev?.source.accountId == acc.id) {
           failure ??= 'изменение не отправлено (исчерпаны попытки)';
         }
         continue;
       }
       try {
-        final event = await events.getById(item.eventId);
+        final event = await events.getById(effectiveEventId);
         // Пуш только для СВОЕГО аккаунта. Раньше синк другого аккаунта доходил
         // до removeOutbox и СТИРАЛ чужое задание, не отправив его (баг: локально
         // удалено, в облаке осталось). Для create аккаунт определяется по
@@ -340,10 +379,12 @@ class SyncEngine {
               // тип и она ещё «ожидающая»). Кросс-аккаунт → реальная ссылка в теле.
               var ev = event;
               if (ev.conference != null && !ev.conference!.isReady) {
-                ev = await _provisioner.ensure(ev,
-                    target: acc,
-                    allAccounts: await accounts.allAccounts(),
-                    events: events);
+                ev = await _provisioner.ensure(
+                  ev,
+                  target: acc,
+                  allAccounts: await accounts.allAccounts(),
+                  events: events,
+                );
               }
               final created = await provider.createEvent(acc, cal, ev);
               // Сохранить кросс-аккаунтную конференцию, даже если провайдер
@@ -355,18 +396,36 @@ class SyncEngine {
               // удаляем оптимистичную локальную строку со старым UUID, иначе
               // остаются ДВА события (UUID-копия dirty + серверная). FR-S4.
               if (saved.id != event.id) {
-                await events.hardDelete(event.id);
+                await events.rekeyLocalDirtyAndOutbox(event.id, saved);
+                aliases[event.id] = saved.id;
+              } else {
+                await events.putLocalDirty(saved);
               }
-              await events.putLocalDirty(saved);
             }
           case 'update':
             if (event != null && event.source.accountId == acc.id) {
-              await provider.updateEvent(acc, event);
+              final updated = await provider.updateEvent(acc, event);
+              // Адаптер может канонизировать локальный id (например,
+              // CalDAV legacy `account:calendar:`-префиксы). Переносим
+              // dirty-строку на новый ключ, чтобы pull очистил её, а
+              // старый dirty-дубль не пережил reconcile.
+              if (updated.id != event.id) {
+                await events.rekeyLocalDirtyAndOutbox(event.id, updated);
+                aliases[event.id] = updated.id;
+              } else {
+                // Даже при том же локальном id провайдер мог вернуть новый
+                // ETag/changeKey. Следующий update/delete из уже загруженной
+                // цепочки обязан увидеть его, иначе отправит stale If-Match.
+                await events.putLocalDirty(updated);
+              }
             }
           case 'delete':
             if (event != null && event.source.accountId == acc.id) {
               final idx = int.tryParse(_readInt(item.payloadJson, 'scope'));
-              final scope = (idx != null && idx >= 0 && idx < RecurrenceScope.values.length)
+              final scope =
+                  (idx != null &&
+                      idx >= 0 &&
+                      idx < RecurrenceScope.values.length)
                   ? RecurrenceScope.values[idx]
                   : RecurrenceScope.all;
               await provider.deleteEvent(acc, event, scope);
@@ -376,10 +435,12 @@ class SyncEngine {
             }
           case 'rsvp':
             if (event != null && event.source.accountId == acc.id) {
-              final resp = ResponseStatus.values[
-                  int.tryParse(item.payloadJson.contains('resp')
-                          ? _readInt(item.payloadJson, 'resp')
-                          : '0') ??
+              final resp =
+                  ResponseStatus.values[int.tryParse(
+                        item.payloadJson.contains('resp')
+                            ? _readInt(item.payloadJson, 'resp')
+                            : '0',
+                      ) ??
                       0];
               await provider.respondToInvite(acc, event, resp);
             }

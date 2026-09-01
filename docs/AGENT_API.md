@@ -2,6 +2,9 @@
 
 JSON-интерфейс над локальным календарём Calenfi для LLM-агентов. **Только Linux/Arch.**
 Работает с той же локальной БД, что и приложение (`~/.local/share/ru.apsolutions.calenfi/calenfi.sqlite`).
+При первом запуске GUI или CLI старая БД из
+`~/.local/share/money.click2.calenfi.calenfi/` мигрируется сюда
+через SQLite backup; исходный файл остаётся как резервная копия.
 
 ## Запуск
 

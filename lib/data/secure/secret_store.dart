@@ -23,6 +23,8 @@ class SecretStore {
   SecretStore._();
 
   static final SecretStore instance = SecretStore._();
+  static const _fallbackImportedKey = '_calenfi_fallback_imported_v1';
+  static const _deletedKeysKey = '_calenfi_deleted_keys_v1';
 
   /// Бэкенд хранения. По умолчанию выбирается по платформе; на мобиле UI-слой
   /// подменяет его до [warmUp].
@@ -33,6 +35,7 @@ class SecretStore {
   static KeyringBackend fallbackBackend = FileFallbackBackend();
 
   final Map<String, String> _cache = {};
+  final Set<String> _deletedKeys = {};
   bool _loaded = false;
 
   /// Загружен ли keyring (после [warmUp]).
@@ -51,7 +54,8 @@ class SecretStore {
   KeyringBackend? _active;
 
   /// Хранятся ли секреты в системном keyring (false — сработал фолбэк).
-  bool get usesKeyring => _active != null && !identical(_active, fallbackBackend);
+  bool get usesKeyring =>
+      _active != null && !identical(_active, fallbackBackend);
 
   /// Наполняет кеш: системный keyring → файловый фолбэк → импорт файлов,
   /// оставленных внешними скриптами (`secrets.env`, `.tokens/*.json`).
@@ -70,39 +74,76 @@ class SecretStore {
 
     final fallback = fallbackBackend;
     final stored = await _readBlobFrom(backend);
-    final fromKeyring = stored.isNotEmpty;
-    _cache
+    final fallbackStored = await _readBlobFrom(fallback);
+    final fromKeyring = stored.isValid;
+
+    // Fallback импортируется в keyring ровно один раз. Постоянный merge сделал
+    // бы старый plaintext-файл вечным источником удалённых паролей и токенов.
+    // Tombstones дополнительно блокируют legacy-файлы, которые по-прежнему
+    // проверяются на каждом старте для совместимости с auth-скриптами.
+    _deletedKeys
       ..clear()
-      ..addAll(fromKeyring ? stored : await _readBlobFrom(fallback));
+      ..addAll(fallbackStored.deletedKeys)
+      ..addAll(stored.deletedKeys);
+    _cache.clear();
+    if (!stored.fallbackImported) {
+      _cache.addAll(fallbackStored.values);
+    }
+    _cache.addAll(stored.values);
+    for (final key in _deletedKeys) {
+      _cache.remove(key);
+    }
     final before = _cache.length;
 
     for (final e in (await _importLegacyFiles()).entries) {
+      if (_deletedKeys.contains(e.key)) continue;
       _cache.putIfAbsent(e.key, () => e.value);
     }
     final imported = _cache.length - before;
 
+    var needsPersist = false;
     if (fromKeyring) {
       _active = backend;
+      needsPersist =
+          !stored.fallbackImported ||
+          imported > 0 ||
+          fallbackStored.deletedKeys.difference(stored.deletedKeys).isNotEmpty;
     } else {
       // Куда писать: пробуем keyring и проверяем, читается ли записанное обратно.
       _active = await _keyringWorks() ? backend : fallback;
-      if (!usesKeyring && _cache.isNotEmpty && fallback is FileFallbackBackend) {
-        stderr.writeln('calenfi: системный keyring недоступен — секреты в '
-            '${fallback.path} (права 0600)');
+      needsPersist =
+          !usesKeyring &&
+          (_cache.isNotEmpty || _deletedKeys.isNotEmpty || imported > 0);
+      if (!usesKeyring &&
+          _cache.isNotEmpty &&
+          fallback is FileFallbackBackend) {
+        stderr.writeln(
+          'calenfi: системный keyring недоступен — секреты в '
+          '${fallback.path} (права 0600)',
+        );
       }
     }
-    if (imported > 0 || (!fromKeyring && _cache.isNotEmpty)) await _writeBlob();
+    if (needsPersist) {
+      try {
+        await _writeBlob();
+      } on Object {
+        // Cache уже содержит объединённые значения и остаётся пригодным для
+        // текущего запуска. Следующий запуск повторит self-heal.
+        stderr.writeln(
+          'calenfi: не удалось обновить хранилище секретов; '
+          'используется восстановленный кеш текущего запуска',
+        );
+      }
+    }
     _loaded = true;
   }
 
   /// Проверка «keyring реально работает»: пишем метку и читаем обратно.
   Future<bool> _keyringWorks() async {
     try {
-      await backend.write(jsonEncode(_cache.isEmpty ? {'_probe': '1'} : _cache));
-      final back = await backend.read();
-      if (back == null || back.isEmpty) return false;
-      final m = jsonDecode(back);
-      return m is Map;
+      await backend.write(_encodeBlob(forKeyring: true));
+      final back = await _readBlobFrom(backend);
+      return back.isValid && back.fallbackImported;
     } on Object {
       return false;
     }
@@ -111,6 +152,10 @@ class SecretStore {
   /// Пишет секрет в keyring и в кеш.
   Future<void> write(String key, String value) async {
     if (!_loaded) await warmUp();
+    if (usesKeyring) {
+      await _updateFallbackEntry(key, tombstone: false);
+    }
+    _deletedKeys.remove(key);
     _cache[key] = value;
     await _writeBlob();
   }
@@ -118,30 +163,85 @@ class SecretStore {
   /// Удаляет секрет.
   Future<void> delete(String key) async {
     if (!_loaded) await warmUp();
+    if (usesKeyring) {
+      // Scrub the old plaintext value before updating keyring. Only metadata is
+      // added; keyring-only secret values are never mirrored into fallback.
+      await _updateFallbackEntry(key, tombstone: true);
+    }
     _cache.remove(key);
+    _deletedKeys.add(key);
     await _writeBlob();
   }
 
-  Future<Map<String, String>> _readBlobFrom(KeyringBackend b) async {
+  Future<_StoredBlob> _readBlobFrom(KeyringBackend b) async {
     String? raw;
     try {
       raw = await b.read();
     } on Object {
-      return {};
+      return const _StoredBlob.invalid();
     }
-    if (raw == null || raw.trim().isEmpty) return {};
+    if (raw == null || raw.trim().isEmpty) {
+      return const _StoredBlob.invalid();
+    }
     try {
-      final m = jsonDecode(raw) as Map<String, dynamic>;
-      return {
-        for (final e in m.entries)
-          if (e.value is String && e.key != '_probe') e.key: e.value as String,
-      };
-    } on FormatException {
-      return {};
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return const _StoredBlob.invalid();
+      }
+      final deleted = decoded[_deletedKeysKey];
+      return _StoredBlob(
+        isValid: true,
+        fallbackImported:
+            decoded[_fallbackImportedKey] == true ||
+            decoded[_fallbackImportedKey] == '1',
+        deletedKeys: deleted is List
+            ? deleted.whereType<String>().toSet()
+            : const <String>{},
+        values: {
+          for (final e in decoded.entries)
+            if (e.value is String &&
+                e.key != '_probe' &&
+                e.key != _fallbackImportedKey &&
+                e.key != _deletedKeysKey)
+              e.key: e.value as String,
+        },
+      );
+    } on Object {
+      return const _StoredBlob.invalid();
     }
   }
 
-  Future<void> _writeBlob() => (_active ?? backend).write(jsonEncode(_cache));
+  String _encodeBlob({required bool forKeyring}) => jsonEncode({
+    ..._cache,
+    if (forKeyring) _fallbackImportedKey: true,
+    if (_deletedKeys.isNotEmpty)
+      _deletedKeysKey: (_deletedKeys.toList()..sort()),
+  });
+
+  Future<void> _writeBlob() {
+    final active = _active ?? backend;
+    return active.write(_encodeBlob(forKeyring: usesKeyring));
+  }
+
+  Future<void> _updateFallbackEntry(
+    String key, {
+    required bool tombstone,
+  }) async {
+    final fallback = await _readBlobFrom(fallbackBackend);
+    final values = Map<String, String>.of(fallback.values)..remove(key);
+    final deleted = Set<String>.of(fallback.deletedKeys);
+    if (tombstone) {
+      deleted.add(key);
+    } else {
+      deleted.remove(key);
+    }
+    await fallbackBackend.write(
+      jsonEncode({
+        ...values,
+        if (deleted.isNotEmpty) _deletedKeysKey: (deleted.toList()..sort()),
+      }),
+    );
+  }
 
   /// Разовая миграция из dev-формата: `secrets.env` (KEY=value) и
   /// `.tokens/{gcal,graph}_*.json` (содержимое файла кладём строкой как есть).
@@ -150,7 +250,9 @@ class SecretStore {
 
     final envFile = File(legacySecretsPath());
     if (envFile.existsSync()) {
-      for (final line in const LineSplitter().convert(envFile.readAsStringSync())) {
+      for (final line in const LineSplitter().convert(
+        envFile.readAsStringSync(),
+      )) {
         final t = line.trim();
         if (t.isEmpty || t.startsWith('#')) continue;
         final eq = t.indexOf('=');
@@ -168,7 +270,8 @@ class SecretStore {
         final name = f.uri.pathSegments.last;
         if (!name.endsWith('.json')) continue;
         if (!name.startsWith('gcal_') && !name.startsWith('graph_')) continue;
-        out[tokenKey(name.substring(0, name.length - 5))] = f.readAsStringSync();
+        out[tokenKey(name.substring(0, name.length - 5))] = f
+            .readAsStringSync();
       }
     }
     return out;
@@ -176,6 +279,26 @@ class SecretStore {
 
   /// Ключ секрета для OAuth-токена: `token:gcal_USER_GMAIL_COM`.
   static String tokenKey(String name) => 'token:$name';
+}
+
+class _StoredBlob {
+  const _StoredBlob({
+    required this.isValid,
+    required this.fallbackImported,
+    required this.deletedKeys,
+    required this.values,
+  });
+
+  const _StoredBlob.invalid()
+    : isValid = false,
+      fallbackImported = false,
+      deletedKeys = const <String>{},
+      values = const <String, String>{};
+
+  final bool isValid;
+  final bool fallbackImported;
+  final Set<String> deletedKeys;
+  final Map<String, String> values;
 }
 
 /// Доступ к системному хранилищу секретов через штатные утилиты ОС.
@@ -210,8 +333,10 @@ class LinuxSecretToolBackend extends KeyringBackend {
   Future<String?> read() async {
     final r = await Process.run('secret-tool', [
       'lookup',
-      'service', KeyringBackend.service,
-      'account', KeyringBackend.account,
+      'service',
+      KeyringBackend.service,
+      'account',
+      KeyringBackend.account,
     ]);
     if (r.exitCode != 0) return null;
     final out = (r.stdout as String);
@@ -224,15 +349,18 @@ class LinuxSecretToolBackend extends KeyringBackend {
     final p = await Process.start('secret-tool', [
       'store',
       '--label=Calenfi secrets',
-      'service', KeyringBackend.service,
-      'account', KeyringBackend.account,
+      'service',
+      KeyringBackend.service,
+      'account',
+      KeyringBackend.account,
     ]);
     p.stdin.write(value);
     await p.stdin.close();
     final code = await p.exitCode;
     if (code != 0) {
       throw SecretStoreException(
-          'secret-tool store завершился с кодом $code — keyring недоступен?');
+        'secret-tool store завершился с кодом $code — keyring недоступен?',
+      );
     }
   }
 }
@@ -245,8 +373,10 @@ class MacKeychainBackend extends KeyringBackend {
   Future<String?> read() async {
     final r = await Process.run('security', [
       'find-generic-password',
-      '-s', KeyringBackend.service,
-      '-a', KeyringBackend.account,
+      '-s',
+      KeyringBackend.service,
+      '-a',
+      KeyringBackend.account,
       '-w',
     ]);
     if (r.exitCode != 0) return null;
@@ -345,8 +475,9 @@ class UnsupportedBackend extends KeyringBackend {
   @override
   Future<String?> read() async => null;
   @override
-  Future<void> write(String value) async =>
-      throw const SecretStoreException('нет бэкенда keyring для этой платформы');
+  Future<void> write(String value) async => throw const SecretStoreException(
+    'нет бэкенда keyring для этой платформы',
+  );
 }
 
 class SecretStoreException implements Exception {

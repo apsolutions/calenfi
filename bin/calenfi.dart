@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:calenfi/data/local/db/database.dart';
+import 'package:calenfi/data/local/db/database_location.dart';
 import 'package:calenfi/data/providers/calendar/provider_registry.dart';
 import 'package:calenfi/data/providers/conference/conference_provisioner.dart';
 import 'package:calenfi/data/repositories/account_repository.dart';
@@ -30,10 +31,8 @@ import 'package:calenfi/data/secure/secret_store.dart';
 import 'package:calenfi/domain/providers/calendar_provider.dart';
 import 'package:calenfi/sync/sync_engine.dart';
 import 'package:drift/native.dart';
-import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-const _appId = 'ru.apsolutions.calenfi';
 const _uuid = Uuid();
 
 Future<void> main(List<String> argv) async {
@@ -55,7 +54,7 @@ Future<void> main(List<String> argv) async {
     await SecretStore.instance.warmUp();
   }
 
-  final db = AppDatabase(NativeDatabase(File(_dbPath(flags['db']))));
+  final db = AppDatabase(NativeDatabase(await _dbFile(flags['db'])));
   final events = EventRepository(db);
   final accounts = AccountRepository(db);
   final contacts = ContactRepository(db);
@@ -601,13 +600,11 @@ void _require(Map<String, String> f, List<String> keys) {
   if (missing.isNotEmpty) throw 'missing required flags: ${missing.join(', ')}';
 }
 
-String _dbPath(String? override) {
-  if (override != null) return override;
+Future<File> _dbFile(String? override) async {
+  if (override != null) return File(override);
   final env = Platform.environment;
-  if (env['CALENFI_DB'] != null) return env['CALENFI_DB']!;
-  final dataHome = env['XDG_DATA_HOME'] ??
-      p.join(env['HOME'] ?? '/root', '.local', 'share');
-  return p.join(dataHome, _appId, 'calenfi.sqlite');
+  if (env['CALENFI_DB'] != null) return File(env['CALENFI_DB']!);
+  return prepareLinuxDatabaseFile(environment: env);
 }
 
 void _ok(Map<String, dynamic> data) {

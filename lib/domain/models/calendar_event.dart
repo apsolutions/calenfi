@@ -26,13 +26,12 @@ class EventSource {
     String? calendarId,
     String? providerEventId,
     String? etag,
-  }) =>
-      EventSource(
-        accountId: accountId ?? this.accountId,
-        calendarId: calendarId ?? this.calendarId,
-        providerEventId: providerEventId ?? this.providerEventId,
-        etag: etag ?? this.etag,
-      );
+  }) => EventSource(
+    accountId: accountId ?? this.accountId,
+    calendarId: calendarId ?? this.calendarId,
+    providerEventId: providerEventId ?? this.providerEventId,
+    etag: etag ?? this.etag,
+  );
 }
 
 /// Событие календаря.
@@ -130,14 +129,32 @@ class CalendarEvent {
     for (final a in attendees) {
       if (a.isResource) continue;
       final key = a.email.trim().toLowerCase();
-      if (key.isNotEmpty && !seen.add(key)) continue; // дубль по email — пропуск
+      if (key.isNotEmpty && !seen.add(key)) {
+        continue; // дубль по email — пропуск
+      }
       out.add(a);
     }
     return out;
   }
 
-  /// Копия с другим локальным id (нужно при создании нового события).
-  CalendarEvent withId(String newId) => CalendarEvent(
+  /// Копия с новым локальным id для ещё не созданного события.
+  /// До первого push тот же UUID используется как временный provider id.
+  CalendarEvent withId(String newId) => _withLocalId(
+    newId,
+    EventSource(
+      accountId: source.accountId,
+      calendarId: source.calendarId,
+      providerEventId: newId,
+      etag: source.etag,
+    ),
+  );
+
+  /// Меняет только локальный id, не трогая адрес/id ресурса
+  /// в провайдере. Нужно, когда адаптер канонизирует локальный ключ.
+  CalendarEvent withLocalId(String newId) => _withLocalId(newId, source);
+
+  CalendarEvent _withLocalId(String newId, EventSource newSource) =>
+      CalendarEvent(
         id: newId,
         calendarId: calendarId,
         title: title,
@@ -155,12 +172,7 @@ class CalendarEvent {
         visibility: visibility,
         reminders: reminders,
         conference: conference,
-        source: EventSource(
-          accountId: source.accountId,
-          calendarId: source.calendarId,
-          providerEventId: newId,
-          etag: source.etag,
-        ),
+        source: newSource,
         status: status,
         deletedRemotely: deletedRemotely,
         colorOverride: colorOverride,
@@ -168,8 +180,7 @@ class CalendarEvent {
         webUrl: webUrl,
       );
 
-  bool get isCancelled =>
-      status == EventStatus.cancelled || deletedRemotely;
+  bool get isCancelled => status == EventStatus.cancelled || deletedRemotely;
 
   bool get isInvitePending => myResponse == ResponseStatus.needsAction;
 
@@ -198,30 +209,29 @@ class CalendarEvent {
     String? mergedGroupId,
     EventSource? source,
     String? webUrl,
-  }) =>
-      CalendarEvent(
-        id: id,
-        calendarId: calendarId,
-        title: title ?? this.title,
-        startUtc: startUtc ?? this.startUtc,
-        endUtc: endUtc ?? this.endUtc,
-        timeZoneId: timeZoneId ?? this.timeZoneId,
-        allDay: allDay ?? this.allDay,
-        location: location ?? this.location,
-        description: description ?? this.description,
-        recurrenceRule: recurrenceRule ?? this.recurrenceRule,
-        recurrenceId: recurrenceId,
-        attendees: attendees ?? this.attendees,
-        myResponse: myResponse ?? this.myResponse,
-        showAs: showAs ?? this.showAs,
-        visibility: visibility ?? this.visibility,
-        reminders: reminders ?? this.reminders,
-        conference: conference ?? this.conference,
-        source: source ?? this.source,
-        webUrl: webUrl ?? this.webUrl,
-        status: status ?? this.status,
-        deletedRemotely: deletedRemotely ?? this.deletedRemotely,
-        colorOverride: colorOverride ?? this.colorOverride,
-        mergedGroupId: mergedGroupId ?? this.mergedGroupId,
-      );
+  }) => CalendarEvent(
+    id: id,
+    calendarId: calendarId,
+    title: title ?? this.title,
+    startUtc: startUtc ?? this.startUtc,
+    endUtc: endUtc ?? this.endUtc,
+    timeZoneId: timeZoneId ?? this.timeZoneId,
+    allDay: allDay ?? this.allDay,
+    location: location ?? this.location,
+    description: description ?? this.description,
+    recurrenceRule: recurrenceRule ?? this.recurrenceRule,
+    recurrenceId: recurrenceId,
+    attendees: attendees ?? this.attendees,
+    myResponse: myResponse ?? this.myResponse,
+    showAs: showAs ?? this.showAs,
+    visibility: visibility ?? this.visibility,
+    reminders: reminders ?? this.reminders,
+    conference: conference ?? this.conference,
+    source: source ?? this.source,
+    webUrl: webUrl ?? this.webUrl,
+    status: status ?? this.status,
+    deletedRemotely: deletedRemotely ?? this.deletedRemotely,
+    colorOverride: colorOverride ?? this.colorOverride,
+    mergedGroupId: mergedGroupId ?? this.mergedGroupId,
+  );
 }

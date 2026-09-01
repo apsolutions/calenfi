@@ -1,7 +1,7 @@
 # Calenfi
 
-[![CI](https://github.com/karpovilia/calenfi/actions/workflows/ci.yml/badge.svg)](https://github.com/karpovilia/calenfi/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/karpovilia/calenfi?sort=semver)](https://github.com/karpovilia/calenfi/releases)
+[![CI](https://github.com/apsolutions/calenfi/actions/workflows/ci.yml/badge.svg)](https://github.com/apsolutions/calenfi/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/apsolutions/calenfi?sort=semver)](https://github.com/apsolutions/calenfi/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Calenfi** is a local-first calendar aggregator for **macOS, Linux, Windows and
@@ -32,7 +32,7 @@ on-device, editable offline.
 ## Downloads
 
 Prebuilt binaries for every platform are attached to each
-[GitHub Release](https://github.com/karpovilia/calenfi/releases).
+[GitHub Release](https://github.com/apsolutions/calenfi/releases).
 
 | Platform | Artifact |
 |----------|----------|

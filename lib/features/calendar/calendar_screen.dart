@@ -551,10 +551,13 @@ class _SyncStatus extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accounts = ref.watch(accountsStreamProvider).value ?? const [];
     final now = DateTime.now().toUtc();
-    // Показываем САМЫЙ СТАРЫЙ синк (худший случай), а не самый свежий — иначе
-    // один свежий аккаунт маскирует протухшие. Зелёная только если ВСЕ аккаунты
-    // реально свежие и здоровы.
+    // Когда всё исправно, показываем самый старый успешный синк: один свежий
+    // аккаунт не должен маскировать отставший. При частичном сбое не выдаём
+    // дату сломанного аккаунта за состояние всего приложения — показываем
+    // число действительно актуальных аккаунтов и время худшего из них.
     DateTime? oldest;
+    DateTime? oldestFresh;
+    var freshCount = 0;
     bool anyNever = false; // есть аккаунт, ни разу не синканный
     bool anyStale = false; // есть аккаунт, отставший от своего интервала
     for (final a in accounts) {
@@ -568,7 +571,12 @@ class _SyncStatus extends ConsumerWidget {
       final limit = iv == Duration.zero
           ? const Duration(minutes: 30)
           : iv * 2 + const Duration(minutes: 2);
-      if (now.difference(t) > limit) anyStale = true;
+      final isStale = now.difference(t) > limit;
+      if (isStale) anyStale = true;
+      if (a.isHealthy && !isStale) {
+        freshCount++;
+        if (oldestFresh == null || t.isBefore(oldestFresh)) oldestFresh = t;
+      }
     }
     final failed = accounts.any((a) => !a.isHealthy);
     final stale = anyNever || anyStale;
@@ -578,6 +586,10 @@ class _SyncStatus extends ConsumerWidget {
     const green = Color(0xFF2ECC71);
     const amber = Color(0xFFFF8F00);
     final color = warn ? amber : (ok ? green : null);
+    final statusText = warn
+        ? '$freshCount/${accounts.length}'
+              '${oldestFresh == null ? '' : ' · ${_fmtSince(oldestFresh.toLocal())}'}'
+        : (oldest == null ? '—' : _fmtSince(oldest.toLocal()));
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -612,7 +624,7 @@ class _SyncStatus extends ConsumerWidget {
                       color: color),
             ),
             const SizedBox(width: 3),
-            Text(oldest == null ? '—' : _fmtSince(oldest.toLocal()),
+            Text(statusText,
                 style: TextStyle(
                     fontSize: 12,
                     color: color,

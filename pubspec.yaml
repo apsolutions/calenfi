@@ -1,7 +1,7 @@
 name: calenfi
 description: "Calenfi — кросс-платформенный агрегатор календарей (local-first)."
 publish_to: 'none'
-version: 0.3.1+6
+version: 0.3.2+7
 
 environment:
   sdk: ^3.12.1
@@ -19,6 +19,7 @@ dependencies:
 
   # Локальная БД
   drift: ^2.20.0
+  sqlite3: ^2.9.4 # online backup for non-destructive app-id data migration
   sqlite3_flutter_libs: ^0.5.24
   path_provider: ^2.1.4
   path: ^1.9.0

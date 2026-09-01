@@ -6,6 +6,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-09-01
+
+### Fixed
+- Linux, Android and Windows now consistently display **Calenfi** and use the
+  canonical `ru.apsolutions.calenfi` desktop/application identity.
+- On Linux, a database from `money.click2.calenfi.calenfi` (or the intermediate
+  `io.github.karpovilia.calenfi` id) is migrated with SQLite's online backup on
+  first launch. The source database is retained as a rollback copy, and both
+  the GUI and agent CLI resolve the same canonical path.
+- An incomplete system-keyring record is now repaired once from the retained
+  fallback store, restoring Exchange settings such as a known EWS endpoint
+  without allowing deleted secrets to reappear or copying keyring-only secrets
+  back to plaintext.
+- The calendar header no longer presents the oldest failed account timestamp as
+  if every account stopped syncing; partial health is shown as a fresh-account
+  count while the existing health banner identifies the failing account.
+- CalDAV always performs a full REPORT even when a server's collection tag is
+  unchanged, so deletions made by another client are reconciled locally.
+- CalDAV writes preserve the server resource href, send the original RFC UID
+  instead of a Calenfi-scoped local id, and require successful per-resource
+  multistatus responses. This stops repeated account/calendar prefixes from
+  growing when an event is moved repeatedly between Windows and Calenfi.
+- CalDAV create/update/delete operations use HTTP preconditions, and outbox
+  entries are retargeted atomically when a legacy local id is canonicalized.
+  Existing duplicate server resources are collapsed deterministically for the
+  local view but are not mutated automatically during a normal sync.
+- Explicit deletion now removes every server resource in a canonical legacy
+  UID family, so an older prefixed copy cannot reappear after the winner is
+  deleted. Retried creates recover idempotently when the original successful
+  response was lost and the server answers `412 Precondition Failed`.
+- Recurring CalDAV edits merge only the selected master or `RECURRENCE-ID`
+  exception into the existing resource, preserving sibling exceptions,
+  `EXDATE`/`RDATE`, alarms and vendor fields; pull no longer duplicates moved
+  occurrences.
+- A failed or conflicting outbound edit is protected from the following pull,
+  tombstone and full-window reconciliation. Remote ETag/resource metadata is
+  still refreshed, allowing a later retry to apply the local edit without
+  silently replacing it with the server's older payload.
+- App-id migration now validates complete Windows state profiles and selects
+  SQLite sources using application timestamps plus DB/WAL/SHM freshness,
+  avoiding stale databases and newer-but-corrupt credential files.
+- Meeting links now have a permanently visible 48 dp copy action on mobile,
+  where the desktop hover-only control was unreachable.
+
 ## [0.3.1] — 2026-08-27
 
 ### Changed
@@ -140,9 +184,11 @@ First public release.
   (libsecret / Keychain / DPAPI), with an encrypted-at-rest file fallback and
   `flutter_secure_storage` on mobile.
 
-[Unreleased]: https://github.com/karpovilia/calenfi/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/karpovilia/calenfi/compare/v0.2.1...v0.3.0
-[0.2.1]: https://github.com/karpovilia/calenfi/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/karpovilia/calenfi/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/karpovilia/calenfi/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/karpovilia/calenfi/releases/tag/v0.1.0
+[Unreleased]: https://github.com/apsolutions/calenfi/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/apsolutions/calenfi/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/apsolutions/calenfi/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/apsolutions/calenfi/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/apsolutions/calenfi/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/apsolutions/calenfi/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/apsolutions/calenfi/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/apsolutions/calenfi/releases/tag/v0.1.0

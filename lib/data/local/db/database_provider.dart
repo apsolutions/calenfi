@@ -7,9 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'database.dart';
-
-/// Имя файла локальной БД (общее для приложения и агентского CLI).
-const String kDbFileName = 'calenfi.sqlite';
+import 'database_location.dart';
 
 /// Единственный инстанс локальной БД на всё приложение.
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -20,8 +18,31 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 
 QueryExecutor _openConnection() {
   return LazyDatabase(() async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, kDbFileName));
+    final Directory dir;
+    final Iterable<Directory> legacyDirectories;
+    if (Platform.isLinux) {
+      dir = linuxApplicationSupportDirectory();
+      legacyDirectories = linuxLegacyApplicationSupportDirectories();
+    } else {
+      dir = await getApplicationSupportDirectory();
+      legacyDirectories = _legacyDesktopDirectories(dir);
+    }
+    final file = await prepareDatabaseFile(
+      targetDirectory: dir,
+      legacyDirectories: legacyDirectories,
+    );
     return NativeDatabase.createInBackground(file);
   });
+}
+
+Iterable<Directory> _legacyDesktopDirectories(Directory canonical) sync* {
+  if (Platform.isMacOS) {
+    for (final id in kLegacyApplicationIds) {
+      yield Directory(p.join(canonical.parent.path, id));
+    }
+  } else if (Platform.isWindows) {
+    // path_provider_windows derives this path from CompanyName/ProductName.
+    // v0.3.1 used apsolutions/calenfi; older builds used the identifiers below.
+    yield* windowsLegacyApplicationSupportDirectories(canonical);
+  }
 }

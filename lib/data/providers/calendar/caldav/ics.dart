@@ -12,10 +12,15 @@ class VEvent {
     this.description,
     this.status,
     this.rrule,
+    this.recurrenceIdUtc,
+    this.exdatesUtc = const [],
     this.organizerEmail,
     this.attendees = const [],
     this.timeZoneId = 'UTC',
     this.url,
+    this.sequence,
+    this.dtStampUtc,
+    this.lastModifiedUtc,
   });
 
   final String uid;
@@ -27,12 +32,29 @@ class VEvent {
   final String? description;
   final String? status; // CONFIRMED | TENTATIVE | CANCELLED
   final String? rrule;
+
+  /// Исходное время экземпляра серии из `RECURRENCE-ID`.
+  ///
+  /// Оно не обязано совпадать с [startUtc]: после переноса exception сохраняет
+  /// старый RECURRENCE-ID, а DTSTART содержит новое время. Именно этот штамп
+  /// служит стабильным ключом экземпляра при следующем pull.
+  final DateTime? recurrenceIdUtc;
+
+  /// Исключённые RRULE-вхождения из всех строк EXDATE мастера.
+  final List<DateTime> exdatesUtc;
   final String? organizerEmail;
   final List<IcsAttendee> attendees;
   final String timeZoneId;
 
   /// Web-ссылка на событие (Yandex кладёт сюда calendar.yandex.ru/event?...).
   final String? url;
+
+  /// Поля версии RFC 5545. Нужны для детерминированного выбора
+  /// новейшей копии, если legacy-баг создал на сервере несколько
+  /// ресурсов одной UID-семьи.
+  final int? sequence;
+  final DateTime? dtStampUtc;
+  final DateTime? lastModifiedUtc;
 }
 
 class IcsAttendee {
@@ -52,13 +74,15 @@ List<VEvent> parseIcs(String ics) {
 
   Map<String, _Prop>? cur;
   final attendees = <IcsAttendee>[];
+  final exdates = <DateTime>[];
   for (final line in lines) {
     if (line == 'BEGIN:VEVENT') {
       cur = {};
       attendees.clear();
+      exdates.clear();
     } else if (line == 'END:VEVENT') {
       if (cur != null) {
-        final e = _build(cur, List.of(attendees));
+        final e = _build(cur, List.of(attendees), List.of(exdates));
         if (e != null) events.add(e);
       }
       cur = null;
@@ -66,12 +90,22 @@ List<VEvent> parseIcs(String ics) {
       final prop = _Prop.parse(line);
       if (prop == null) continue;
       if (prop.name == 'ATTENDEE') {
-        attendees.add(IcsAttendee(
-          _mailto(prop.value),
-          prop.params['PARTSTAT'],
-          prop.params['ROLE'],
-          cutype: prop.params['CUTYPE'],
-        ));
+        attendees.add(
+          IcsAttendee(
+            _mailto(prop.value),
+            prop.params['PARTSTAT'],
+            prop.params['ROLE'],
+            cutype: prop.params['CUTYPE'],
+          ),
+        );
+      } else if (prop.name == 'EXDATE') {
+        for (final value in prop.value.split(',')) {
+          try {
+            exdates.add(_parseDate(_Prop(prop.name, value, prop.params)));
+          } catch (_) {
+            // Одна битая дата не должна скрывать весь VEVENT.
+          }
+        }
       } else {
         cur[prop.name] = prop;
       }
@@ -80,7 +114,11 @@ List<VEvent> parseIcs(String ics) {
   return events;
 }
 
-VEvent? _build(Map<String, _Prop> p, List<IcsAttendee> attendees) {
+VEvent? _build(
+  Map<String, _Prop> p,
+  List<IcsAttendee> attendees,
+  List<DateTime> exdates,
+) {
   final dtstart = p['DTSTART'];
   if (dtstart == null) return null;
   final allDay = dtstart.params['VALUE'] == 'DATE';
@@ -100,11 +138,27 @@ VEvent? _build(Map<String, _Prop> p, List<IcsAttendee> attendees) {
     description: _unescape(p['DESCRIPTION']?.value),
     status: p['STATUS']?.value,
     rrule: p['RRULE']?.value,
-    organizerEmail: p['ORGANIZER'] != null ? _mailto(p['ORGANIZER']!.value) : null,
+    recurrenceIdUtc: _tryParseDate(p['RECURRENCE-ID']),
+    exdatesUtc: exdates,
+    organizerEmail: p['ORGANIZER'] != null
+        ? _mailto(p['ORGANIZER']!.value)
+        : null,
     attendees: attendees,
     timeZoneId: dtstart.params['TZID'] ?? 'UTC',
     url: p['URL']?.value.trim(),
+    sequence: int.tryParse(p['SEQUENCE']?.value.trim() ?? ''),
+    dtStampUtc: _tryParseDate(p['DTSTAMP']),
+    lastModifiedUtc: _tryParseDate(p['LAST-MODIFIED']),
   );
+}
+
+DateTime? _tryParseDate(_Prop? p) {
+  if (p == null) return null;
+  try {
+    return _parseDate(p);
+  } catch (_) {
+    return null;
+  }
 }
 
 DateTime _parseDate(_Prop p) {

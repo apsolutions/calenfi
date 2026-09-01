@@ -90,11 +90,13 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "apsolutions" "\0"
-            VALUE "FileDescription", "calenfi" "\0"
+            VALUE "FileDescription", "Calenfi" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "calenfi" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 apsolutions. All rights reserved." "\0"
             VALUE "OriginalFilename", "calenfi.exe" "\0"
+            // Keep the lowercase product id for path_provider compatibility:
+            // changing only case would relocate accounts.json and DPAPI data.
             VALUE "ProductName", "calenfi" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

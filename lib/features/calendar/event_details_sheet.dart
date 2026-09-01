@@ -700,8 +700,9 @@ class _CopyableState extends State<_Copyable> {
   }
 }
 
-/// Строка «Присоединиться» к видеовстрече. Иконка копирования ссылки скрыта и
-/// появляется только при наведении на строку (FR-M2).
+/// Строка «Присоединиться» к видеовстрече. На десктопе иконка копирования
+/// появляется при наведении, а на мобильных платформах видна постоянно:
+/// тач-экран не генерирует hover-события (FR-M2).
 class _MeetingJoinRow extends StatefulWidget {
   const _MeetingJoinRow({required this.url, required this.label});
   final String url;
@@ -728,8 +729,17 @@ class _MeetingJoinRowState extends State<_MeetingJoinRow> {
           ),
         ),
         const SizedBox(width: 8),
-        _hoverCopyIcon(context, _hover, widget.url,
-            message: L10n.of(context).detMeetingLinkCopied, size: 18),
+        if (isMobilePlatform)
+          IconButton(
+            key: const ValueKey('meeting-link-copy'),
+            tooltip: L10n.of(context).detCopy,
+            onPressed: () => _copyToClipboard(context, widget.url,
+                message: L10n.of(context).detMeetingLinkCopied),
+            icon: const Icon(Icons.copy, size: 18, color: Colors.grey),
+          )
+        else
+          _hoverCopyIcon(context, _hover, widget.url,
+              message: L10n.of(context).detMeetingLinkCopied, size: 18),
       ]),
     );
   }
