@@ -66,6 +66,7 @@ class _FamilyAdapter implements HttpClientAdapter {
 
 const _uid = 'ea5c1418-3a71-4bd9-9728-c3a9ca1ce34e';
 const _prefix = 'acc-yandex:events-10922764:';
+const _calendarHref = '/calendars/me%40example.org/events-10922764/';
 
 String _resource(String href, String uid, String etag) =>
     '''
@@ -88,10 +89,10 @@ END:VCALENDAR]]></c:calendar-data>
 final _familyReport =
     '''
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-${_resource('/cal/newest.ics', '$_prefix$_prefix$_prefix$_uid', 'etag-newest')}
-${_resource('/cal/legacy-middle.ics', '$_prefix$_prefix$_uid', 'etag-middle')}
-${_resource('/cal/legacy-oldest.ics', _uid, 'etag-oldest')}
-${_resource('/cal/unrelated.ics', 'not-$_uid-extra', 'etag-unrelated')}
+${_resource('${_calendarHref}newest.ics', '$_prefix$_prefix$_prefix$_uid', 'etag-newest')}
+${_resource('${_calendarHref}legacy-middle.ics', '$_prefix$_prefix$_uid', 'etag-middle')}
+${_resource('${_calendarHref}legacy-oldest.ics', _uid, 'etag-oldest')}
+${_resource('${_calendarHref}unrelated.ics', 'not-$_uid-extra', 'etag-unrelated')}
 </d:multistatus>''';
 
 void main() {
@@ -102,7 +103,7 @@ void main() {
     email: 'me@example.org',
   );
   const calendar = Calendar(
-    id: 'acc-yandex|/cal/',
+    id: 'acc-yandex|$_calendarHref',
     accountId: 'acc-yandex',
     name: 'Calendar',
     color: 0,
@@ -116,8 +117,8 @@ void main() {
     endUtc: DateTime.utc(2026, 8, 28, 16, 15),
     source: const EventSource(
       accountId: 'acc-yandex',
-      calendarId: 'acc-yandex|/cal/',
-      providerEventId: '/cal/newest.ics',
+      calendarId: 'acc-yandex|$_calendarHref',
+      providerEventId: '${_calendarHref}newest.ics',
       etag: 'stale-local-etag',
     ),
   );
@@ -148,9 +149,9 @@ void main() {
       expect(adapter.requests.first.body, contains(_uid));
       expect(adapter.requests.first.body, isNot(contains('<c:time-range')));
       expect(adapter.requests.skip(1).map((request) => request.uri.path), [
-        '/cal/legacy-middle.ics',
-        '/cal/legacy-oldest.ics',
-        '/cal/newest.ics',
+        '${_calendarHref}legacy-middle.ics',
+        '${_calendarHref}legacy-oldest.ics',
+        '${_calendarHref}newest.ics',
       ]);
       expect(
         adapter.requests.skip(1).map((request) => request.headers['If-Match']),
@@ -159,14 +160,16 @@ void main() {
       );
       expect(
         adapter.requests.map((request) => request.uri.path),
-        isNot(contains('/cal/unrelated.ics')),
+        isNot(contains('${_calendarHref}unrelated.ics')),
         reason: 'substring REPORT results still require exact canonical UID',
       );
     },
   );
 
   test('a failed sibling DELETE leaves the pull winner untouched', () async {
-    final adapter = _FamilyAdapter(failHref: '/cal/legacy-middle.ics');
+    final adapter = _FamilyAdapter(
+      failHref: '${_calendarHref}legacy-middle.ics',
+    );
     final dio = Dio()..httpClientAdapter = adapter;
     final provider = CalDavProvider(account: account, password: 'x', dio: dio);
 
@@ -181,7 +184,7 @@ void main() {
     ]);
     expect(
       adapter.requests.map((request) => request.uri.path),
-      isNot(contains('/cal/newest.ics')),
+      isNot(contains('${_calendarHref}newest.ics')),
     );
   });
 }

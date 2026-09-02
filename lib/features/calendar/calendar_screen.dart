@@ -822,7 +822,7 @@ class _PeriodTitle extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(viewModeProvider);
     final d = ref.watch(focusedDateProvider);
-    final now = DateTime.now();
+    final now = ref.watch(calendarClockProvider);
     final isToday =
         d.year == now.year && d.month == now.month && d.day == now.day;
 

@@ -184,7 +184,7 @@ class _EventDetails extends ConsumerWidget {
               ]),
 
             const SizedBox(height: 12),
-            Row(children: [
+            Wrap(spacing: 10, runSpacing: 8, children: [
               OutlinedButton.icon(
                 onPressed: () {
                   final nav = Navigator.of(context);
@@ -195,7 +195,6 @@ class _EventDetails extends ConsumerWidget {
                 icon: const Icon(Icons.edit_outlined),
                 label: Text(l10n.detEdit),
               ),
-              const SizedBox(width: 10),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent),
                 onPressed: () => _confirmAndDelete(context, ref, e),

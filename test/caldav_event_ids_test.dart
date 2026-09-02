@@ -202,7 +202,7 @@ void main() {
       expect(adapter.requests.single.method, 'PUT');
       expect(
         adapter.requests.single.uri.path,
-        '/calendars/me@example.org/events-10922764/server-resource.ics',
+        '/calendars/me%40example.org/events-10922764/server-resource.ics',
       );
       expect(adapter.requests.single.body, contains('UID:$uid\n'));
       expect(adapter.requests.single.body, isNot(contains('UID:$prefix')));
@@ -267,7 +267,7 @@ void main() {
     expect(adapter.requests.single.body, contains('UID:$uid\n'));
     expect(
       adapter.requests.single.uri.path,
-      '/calendars/me@example.org/events-10922764/local-uuid-1.ics',
+      '/calendars/me%40example.org/events-10922764/local-uuid-1.ics',
     );
     expect(adapter.requests.single.headers['If-None-Match'], '*');
     expect(created.source.etag, 'created-bare-etag');
@@ -352,7 +352,7 @@ END:VCALENDAR]]></c:calendar-data>
     expect(adapter.requests.map((r) => r.method), ['REPORT', 'DELETE']);
     expect(
       adapter.requests.last.uri.path,
-      '/calendars/me@example.org/events-10922764/real-server-name.ics',
+      '/calendars/me%40example.org/events-10922764/real-server-name.ics',
     );
     expect(adapter.requests.last.uri.path, isNot(contains(event.id)));
   });

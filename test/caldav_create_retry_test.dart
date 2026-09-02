@@ -191,7 +191,7 @@ void main() {
       expect(adapter.requests.first.headers['If-None-Match'], '*');
       expect(adapter.requests.first.body, contains('UID:local-uuid-1\n'));
       expect(adapter.requests.map((request) => request.uri.path).toSet(), {
-        '/calendars/me@example.org/events-10922764/local-uuid-1.ics',
+        '/calendars/me%40example.org/events-10922764/local-uuid-1.ics',
       });
     },
   );

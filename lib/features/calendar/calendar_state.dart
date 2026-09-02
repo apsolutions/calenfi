@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
@@ -17,6 +20,115 @@ final viewModeProvider =
 final focusedDateProvider = StateProvider<DateTime>((_) {
   final n = DateTime.now();
   return DateTime(n.year, n.month, n.day);
+});
+
+/// Источник wall-clock времени. Отдельный provider нужен, чтобы lifecycle и
+/// границы минуты/суток проверялись детерминированно в тестах.
+final calendarClockSourceProvider =
+    Provider<DateTime Function()>((_) => DateTime.now);
+
+/// Задержка до следующей точной границы минуты.
+///
+/// В отличие от [Timer.periodic], каждый следующий тик считается заново от
+/// wall clock: задержка обработки кадра или sleep не накапливают дрейф.
+@visibleForTesting
+Duration calendarClockDelay(DateTime now) {
+  final elapsed = Duration(
+    seconds: now.second,
+    milliseconds: now.millisecond,
+    microseconds: now.microsecond,
+  );
+  return const Duration(minutes: 1) - elapsed;
+}
+
+bool _sameLocalDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// Единые часы календаря: один минутный таймер на весь ProviderScope, а не по
+/// таймеру на каждую страницу временной сетки.
+///
+/// Пока приложение скрыто/приостановлено, таймер выключен. На resume часы
+/// читаются немедленно и подписчики получают новый кадр до запуска следующего
+/// выровненного one-shot таймера.
+class CalendarClockNotifier extends StateNotifier<DateTime>
+    with WidgetsBindingObserver {
+  CalendarClockNotifier({
+    required DateTime Function() now,
+    required this.onDayChanged,
+  })  : _now = now,
+        super(now()) {
+    WidgetsBinding.instance.addObserver(this);
+    _scheduleNextTick();
+  }
+
+  final DateTime Function() _now;
+  final void Function(DateTime previous, DateTime current) onDayChanged;
+  Timer? _timer;
+
+  static bool _runsIn(AppLifecycleState? lifecycle) =>
+      lifecycle == null ||
+      lifecycle == AppLifecycleState.resumed ||
+      lifecycle == AppLifecycleState.inactive;
+
+  void _scheduleNextTick() {
+    _timer?.cancel();
+    _timer = null;
+    if (!_runsIn(WidgetsBinding.instance.lifecycleState)) return;
+    _timer = Timer(calendarClockDelay(_now()), _tick);
+  }
+
+  void _tick() {
+    _timer = null;
+    _refresh();
+    _scheduleNextTick();
+  }
+
+  void _refresh() {
+    final previous = state;
+    final current = _now();
+    state = current;
+    if (!_sameLocalDay(previous, current)) {
+      onDayChanged(previous, current);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_runsIn(state)) {
+      // Не ждём очередного тика после sleep/background: repaint с актуальным
+      // wall-clock временем должен быть запланирован сразу на resume.
+      _refresh();
+      _scheduleNextTick();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    super.dispose();
+  }
+}
+
+/// Текущее локальное время, общее для индикатора, заголовка и смены суток.
+final calendarClockProvider =
+    StateNotifierProvider<CalendarClockNotifier, DateTime>((ref) {
+  return CalendarClockNotifier(
+    now: ref.watch(calendarClockSourceProvider),
+    onDayChanged: (previous, current) {
+      final focused = ref.read(focusedDateProvider);
+      // Автоматически продолжаем следовать за «сегодня» только если перед
+      // полуночью пользователь действительно смотрел текущий день. Просмотр
+      // истории/будущего не должен внезапно перескакивать.
+      if (_sameLocalDay(focused, previous)) {
+        ref.read(focusedDateProvider.notifier).state =
+            DateTime(current.year, current.month, current.day);
+      }
+    },
+  );
 });
 
 /// Тумблер «показать удалённые/отменённые» (FR-V12).

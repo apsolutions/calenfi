@@ -6,7 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.2] — 2026-09-01
+## [0.3.2] — 2026-09-02
+
+### Added
+- Day view columns now show the localized weekday and calendar date above the
+  timeline.
 
 ### Fixed
 - Linux, Android and Windows now consistently display **Calenfi** and use the
@@ -48,7 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SQLite sources using application timestamps plus DB/WAL/SHM freshness,
   avoiding stale databases and newer-but-corrupt credential files.
 - Meeting links now have a permanently visible 48 dp copy action on mobile,
-  where the desktop hover-only control was unreachable.
+  where the desktop hover-only control was unreachable, without overflowing on
+  narrow phone screens.
+- The Android agenda widget keeps a rolling event snapshot and schedules a
+  refresh just after local midnight, so it advances to the new day even while
+  Calenfi is closed and continues to handle time-zone and clock changes.
+- The red current-time line uses one lifecycle-aware, wall-clock-aligned timer:
+  it refreshes immediately after sleep or resume instead of remaining behind
+  real time, and follows midnight without moving a deliberately browsed date.
 
 ## [0.3.1] — 2026-08-27
 

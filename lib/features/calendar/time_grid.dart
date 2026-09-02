@@ -13,7 +13,8 @@ import '../../domain/models/calendar_event.dart';
 import '../../domain/models/merged_event.dart';
 import '../../l10n/app_localizations.dart';
 import '../event_editor/event_editor_screen.dart';
-import 'calendar_state.dart' show moveModeProvider, commitDelayProvider;
+import 'calendar_state.dart'
+    show calendarClockProvider, moveModeProvider, commitDelayProvider;
 import 'event_block.dart';
 import 'event_details_sheet.dart';
 import 'pending_edits.dart';
@@ -83,7 +84,6 @@ class _DrawSelection {
 
 class _TimeGridState extends ConsumerState<TimeGrid> {
   late final ScrollController _scroll;
-  Timer? _clock;
   _DragState? _drag;
   _DrawSelection? _draw;
 
@@ -105,16 +105,12 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
   void initState() {
     super.initState();
     _scroll = ScrollController(initialScrollOffset: _initialOffset());
-    // Тик каждые 30 c — двигаем красную линию текущего времени (FR-V6).
-    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
   }
 
   /// Рабочее окно — с 10:00 (раньше встреч обычно нет). После 16:00 подскролливаем
   /// вниз, чтобы текущее время оставалось в зоне видимости.
   double _initialOffset() {
-    final now = DateTime.now();
+    final now = ref.read(calendarClockProvider);
     final nowH = now.hour + now.minute / 60;
     final topHour = nowH > 16 ? (nowH - 4).clamp(10.0, 18.0) : 10.0;
     return topHour * kHourHeight;
@@ -122,7 +118,6 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
 
   @override
   void dispose() {
-    _clock?.cancel();
     _countdown?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -145,6 +140,7 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
     // Режим переноса: встречи откреплены и тянутся перетаскиванием. Иначе —
     // закреплены, а протяжка по сетке рисует новое событие (в т.ч. поверх них).
     final moveMode = ref.watch(moveModeProvider);
+    final now = ref.watch(calendarClockProvider);
     _pending = ref.watch(pendingEditsProvider);
     _syncCountdownTicker(_pending.isNotEmpty);
     return LayoutBuilder(
@@ -195,7 +191,7 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
                 // теряется и событие не создаётся).
                 _buildDrawPreview(colW),
                 // линия текущего времени
-                ..._buildNowLine(colW),
+                ..._buildNowLine(colW, now),
                 // В закреплённом режиме слой создания — ПОВЕРХ всего: рисуем
                 // новое событие даже поверх встреч/блокеров (тап проходит к ним
                 // насквозь — слой прозрачен для хит-теста тапа).
@@ -404,8 +400,7 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
     return [...bands, ...blocks];
   }
 
-  List<Widget> _buildNowLine(double colW) {
-    final now = DateTime.now();
+  List<Widget> _buildNowLine(double colW, DateTime now) {
     final top = (now.hour * 60 + now.minute) / 60 * kHourHeight;
     final hm =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import 'calendar_state.dart';
 import 'time_grid.dart';
@@ -33,7 +34,8 @@ class _DayViewState extends ConsumerState<DayView> {
     super.dispose();
   }
 
-  DateTime _dateForPage(int page) => _anchor.add(Duration(days: page - _center));
+  DateTime _dateForPage(int page) =>
+      _anchor.add(Duration(days: page - _center));
   int _pageForDate(DateTime d) =>
       _center + DateTime(d.year, d.month, d.day).difference(_anchor).inDays;
 
@@ -67,17 +69,93 @@ class _DayPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Дату показывает верхняя панель (тап = «Сегодня»), поэтому здесь без шапки.
     final eventsAsync = ref.watch(dayEventsProvider(day));
     final colorsAsync = ref.watch(calendarColorsProvider);
 
-    return eventsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Ошибка: $e')),
-      data: (events) => TimeGrid(
-        days: [day],
-        events: events,
-        colors: colorsAsync.value ?? const {},
+    return Column(
+      children: [
+        DayColumnHeader(day: day),
+        const Divider(height: 1),
+        Expanded(
+          child: eventsAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Ошибка: $e')),
+            data: (events) => TimeGrid(
+              days: [day],
+              events: events,
+              colors: colorsAsync.value ?? const {},
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Заголовок единственной колонки дневного вида.
+///
+/// Геометрия совпадает с недельной шапкой: пустой участок слева выровнен по
+/// временным меткам [TimeGrid], а дата остаётся по центру доступной ширины на
+/// телефоне и десктопе. День недели берётся из активной локали приложения.
+class DayColumnHeader extends StatelessWidget {
+  const DayColumnHeader({super.key, required this.day});
+
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context).toString();
+    final weekday = DateFormat.E(locale).format(day).toUpperCase();
+    final today = DateTime.now();
+    final isToday =
+        day.year == today.year &&
+        day.month == today.month &&
+        day.day == today.day;
+    final colors = Theme.of(context).colorScheme;
+
+    return Semantics(
+      header: true,
+      label: DateFormat.yMMMMEEEEd(locale).format(day),
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            const SizedBox(width: kGutterWidth),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    weekday,
+                    key: const ValueKey('day-column-weekday'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isToday ? colors.primary : Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: isToday
+                        ? colors.primary
+                        : Colors.transparent,
+                    child: Text(
+                      '${day.day}',
+                      key: const ValueKey('day-column-number'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isToday ? Colors.white : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -18,88 +18,99 @@ void main() {
     tester,
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-
-    await tester.binding.setSurfaceSize(const Size(360, 800));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    const expectedUrl = 'https://meet.example.test/s23-copy';
     final clipboardCalls = <MethodCall>[];
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') clipboardCalls.add(call);
-      return null;
-    });
-    addTearDown(
-      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
-    );
+    try {
+      await tester.binding.setSurfaceSize(const Size(360, 800));
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') clipboardCalls.add(call);
+        return null;
+      });
 
-    final start = DateTime.utc(2026, 9, 1, 12);
-    final event = CalendarEvent(
-      id: 'event-s23',
-      calendarId: 'calendar-s23',
-      title: 'Мобильная встреча',
-      startUtc: start,
-      endUtc: start.add(const Duration(hours: 1)),
-      conference: const Conference(
-        type: ConferenceType.meet,
-        joinUrl: expectedUrl,
-      ),
-      source: const EventSource(
-        accountId: 'account-s23',
+      const expectedUrl = 'https://meet.example.test/s23-copy';
+      final start = DateTime.utc(2026, 9, 1, 12);
+      final event = CalendarEvent(
+        id: 'event-s23',
         calendarId: 'calendar-s23',
-      ),
-    );
-    final merged = MergedEvent(
-      groupId: 'group-s23',
-      primary: event,
-      sources: [event],
-    );
+        title: 'Мобильная встреча',
+        startUtc: start,
+        endUtc: start.add(const Duration(hours: 1)),
+        conference: const Conference(
+          type: ConferenceType.meet,
+          joinUrl: expectedUrl,
+        ),
+        source: const EventSource(
+          accountId: 'account-s23',
+          calendarId: 'calendar-s23',
+        ),
+      );
+      final merged = MergedEvent(
+        groupId: 'group-s23',
+        primary: event,
+        sources: [event],
+      );
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          calendarInfoProvider.overrideWith(
-            (ref) => const <String, CalendarInfo>{},
-          ),
-        ],
-        child: MaterialApp(
-          locale: const Locale('ru'),
-          localizationsDelegates: L10n.localizationsDelegates,
-          supportedLocales: L10n.supportedLocales,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => ElevatedButton(
-                onPressed: () => showEventDetails(context, merged),
-                child: const Text('Открыть встречу'),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            calendarInfoProvider.overrideWith(
+              (ref) => const <String, CalendarInfo>{},
+            ),
+          ],
+          child: MaterialApp(
+            locale: const Locale('ru'),
+            localizationsDelegates: L10n.localizationsDelegates,
+            supportedLocales: L10n.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => showEventDetails(context, merged),
+                  child: const Text('Открыть встречу'),
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('Открыть встречу'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Открыть встречу'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'карточка не должна переполняться на ширине S23',
+      );
 
-    final copy = find.byKey(const ValueKey('meeting-link-copy'));
-    expect(copy, findsOneWidget);
-    expect(
-      copy.hitTestable(),
-      findsOneWidget,
-      reason: 'на Android кнопка должна быть доступна без hover',
-    );
-    expect(tester.widget<IconButton>(copy).onPressed, isNotNull);
-    expect(tester.getSize(copy).shortestSide, greaterThanOrEqualTo(48));
+      final copy = find.byKey(const ValueKey('meeting-link-copy'));
+      expect(copy, findsOneWidget);
+      expect(
+        copy.hitTestable(),
+        findsOneWidget,
+        reason: 'на Android кнопка должна быть доступна без hover',
+      );
+      expect(tester.widget<IconButton>(copy).onPressed, isNotNull);
+      expect(tester.getSize(copy).shortestSide, greaterThanOrEqualTo(48));
 
-    await tester.tap(copy);
-    await tester.pump();
+      await tester.tap(copy);
+      await tester.pump();
 
-    final clipboardCall = clipboardCalls.singleWhere(
-      (call) => call.method == 'Clipboard.setData',
-    );
-    expect(clipboardCall.arguments, <String, dynamic>{'text': expectedUrl});
-    expect(find.text('Ссылка на встречу скопирована'), findsOneWidget);
+      final clipboardCall = clipboardCalls.singleWhere(
+        (call) => call.method == 'Clipboard.setData',
+      );
+      expect(clipboardCall.arguments, <String, dynamic>{'text': expectedUrl});
+      expect(find.text('Ссылка на встречу скопирована'), findsOneWidget);
+    } finally {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      try {
+        try {
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.binding.setSurfaceSize(null);
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
   });
 }

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Date/time broadcasts + one self-rescheduling midnight alarm update it;
+     polling every 30 minutes would only waste battery. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
     android:minHeight="110dp"
@@ -8,7 +10,7 @@
     android:minResizeHeight="110dp"
     android:maxResizeWidth="360dp"
     android:maxResizeHeight="520dp"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_agenda"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
