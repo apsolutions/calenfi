@@ -14,6 +14,7 @@ import '../../../../domain/models/conference.dart';
 import '../../../../domain/models/enums.dart';
 import '../../../../domain/providers/calendar_provider.dart';
 import '../../../../domain/providers/provider_capabilities.dart';
+import '../../../../domain/providers/yandex_caldav.dart';
 import 'ics.dart';
 
 /// Один удалённый .ics-ресурс. Legacy-версии Calenfi могли
@@ -678,6 +679,10 @@ class CalDavProvider implements CalendarProvider {
       'DESCRIPTION',
       'ORGANIZER',
       'ATTENDEE',
+      // Yandex consumes this marker and returns X-TELEMOST-CONFERENCE on the
+      // stored event. The latter is a server response field and is not sent.
+      'X-TELEMOST-REQUIRED',
+      'X-TELEMOST-CONFERENCE',
     };
     final eol = existing.contains('\r\n') ? '\r\n' : '\n';
     final blocks = _logicalPropertyBlocks(existing, eol);
@@ -1246,6 +1251,11 @@ class CalDavProvider implements CalendarProvider {
       'TENTATIVE' => EventStatus.tentative,
       _ => EventStatus.confirmed,
     };
+    final telemostUrl = v.telemostConferenceUrl?.trim();
+    final telemostUri = telemostUrl == null ? null : Uri.tryParse(telemostUrl);
+    final telemostMeetingId = telemostUri?.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .lastOrNull;
     return CalendarEvent(
       id: _eventId(acc, cal, v.uid, recurrenceId),
       calendarId: cal.id,
@@ -1272,6 +1282,14 @@ class CalDavProvider implements CalendarProvider {
       myResponse: response,
       status: status,
       webUrl: v.url,
+      conference: telemostUrl == null || telemostUrl.isEmpty
+          ? null
+          : Conference(
+              type: ConferenceType.telemost,
+              joinUrl: telemostUrl,
+              meetingId: telemostMeetingId,
+              accountId: acc.id,
+            ),
       source: EventSource(
         accountId: acc.id,
         calendarId: cal.id,
@@ -1331,8 +1349,17 @@ class CalDavProvider implements CalendarProvider {
       buf.writeln('RRULE:${e.recurrenceRule}');
     }
     if (e.location != null) buf.writeln('LOCATION:${_esc(e.location!)}');
+    // Yandex Calendar consumes this CalDAV extension, creates Telemost and
+    // returns its URL in X-TELEMOST-CONFERENCE and DESCRIPTION. The already
+    // configured Yandex account is enough; no separate Telemost OAuth token.
+    final conference = e.conference;
+    if (conference?.type == ConferenceType.telemost &&
+        conference?.accountId == account.id &&
+        isYandexCalDavAccount(account)) {
+      buf.writeln('X-TELEMOST-REQUIRED:TRUE');
+    }
     // Кросс-аккаунтная конференция (Teams/Meet/Zoom/Telemost) встраивается в
-    // описание — CalDAV сам конференции не заводит.
+    // описание. Для pending Telemost на Yandex ссылку добавит сервер.
     final description = descriptionWithConference(e.description, e.conference);
     if (description != null) buf.writeln('DESCRIPTION:${_esc(description)}');
     // Yandex принимает участников только с ORGANIZER и полными параметрами ATTENDEE.

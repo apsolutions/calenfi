@@ -16,6 +16,7 @@ import '../../l10n/app_localizations.dart';
 import '../accounts/add_account_sheet.dart';
 import '../calendar/calendar_state.dart';
 import '../calendar/pending_edits.dart';
+import 'conference_options.dart';
 import 'recurrence_editor.dart';
 
 /// Открытие редактора события как **диалога** (не на весь экран).
@@ -88,7 +89,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late ShowAs _showAs;
   late EventVisibility _visibility;
   ConferenceType? _conference;
-  String? _conferenceAccountId; // УЗ-хост встречи (Teams/Meet)
+  String? _conferenceAccountId; // УЗ-хост встречи
   late List<Attendee> _attendees;
 
   /// Правило повторения (RRULE без префикса, FR-E6). null — не повторять.
@@ -109,10 +110,12 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     _notes = TextEditingController(text: e?.description ?? '');
     _allDay = e?.allDay ?? false;
     final base = widget.initialDay ?? DateTime.now();
-    _start = e?.startUtc.toLocal() ??
+    _start =
+        e?.startUtc.toLocal() ??
         widget.initialStart ??
         DateTime(base.year, base.month, base.day, 12, 0);
-    _end = e?.endUtc.toLocal() ??
+    _end =
+        e?.endUtc.toLocal() ??
         widget.initialEnd ??
         _start.add(const Duration(hours: 1));
     _calendarId = e?.calendarId;
@@ -136,14 +139,19 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = L10n.of(context);
-    final all = ref.watch(calendarsListProvider).value ?? const <Calendar>[];
+    final calendarsValue = ref.watch(calendarsListProvider);
+    final all = calendarsValue.value ?? const <Calendar>[];
     // Только видимые и доступные для записи календари: в скрытый или read-only
     // календарь событие создать нельзя (FR-A8).
     var cals = all.where((c) => c.visible && !c.readOnly).toList();
     if (cals.isEmpty) cals = all.where((c) => c.visible).toList();
     if (cals.isEmpty) cals = all;
-    if (_calendarId == null || cals.every((c) => c.id != _calendarId)) {
-      _calendarId = cals.isNotEmpty ? cals.first.id : null;
+    // A StreamProvider is initially AsyncLoading. Do not erase an existing
+    // calendar selection during that frame: when several calendars arrive,
+    // falling back to the first one would silently move the edited event.
+    if (calendarsValue.hasValue &&
+        (_calendarId == null || cals.every((c) => c.id != _calendarId))) {
+      _applyCalendarSelection(cals.isNotEmpty ? cals.first.id : null, cals);
     }
 
     return Column(
@@ -153,13 +161,23 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
           child: Row(
             children: [
-              Text(_isNew ? l10n.edNewEvent : l10n.edEditEvent,
+              Expanded(
+                child: Text(
+                  _isNew ? l10n.edNewEvent : l10n.edEditEvent,
+                  key: const ValueKey('event-editor-header-title'),
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
-              const Spacer(),
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
               IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close)),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
               FilledButton(
                 onPressed: cals.isEmpty ? null : () => _save(cals),
                 child: Text(l10n.edDone),
@@ -185,8 +203,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submitByEnter(cals),
                 decoration: InputDecoration(
-                    hintText: l10n.edLocationHint,
-                    icon: const Icon(Icons.place_outlined)),
+                  hintText: l10n.edLocationHint,
+                  icon: const Icon(Icons.place_outlined),
+                ),
               ),
               const SizedBox(height: 8),
               SwitchListTile(
@@ -195,12 +214,16 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 value: _allDay,
                 onChanged: (v) => setState(() => _allDay = v),
               ),
-              _dateTimeRow(l10n.edStart, _start, (d) => setState(() {
-                    _start = d;
-                    if (_end.isBefore(_start)) {
-                      _end = _start.add(const Duration(hours: 1));
-                    }
-                  })),
+              _dateTimeRow(
+                l10n.edStart,
+                _start,
+                (d) => setState(() {
+                  _start = d;
+                  if (_end.isBefore(_start)) {
+                    _end = _start.add(const Duration(hours: 1));
+                  }
+                }),
+              ),
               _dateTimeRow(l10n.edEnd, _end, (d) => setState(() => _end = d)),
               _recurrenceRow(),
               const Divider(height: 24),
@@ -215,8 +238,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 controller: _notes,
                 maxLines: 4,
                 decoration: InputDecoration(
-                    hintText: l10n.edNotesHint,
-                    icon: const Icon(Icons.notes_outlined)),
+                  hintText: l10n.edNotesHint,
+                  icon: const Icon(Icons.notes_outlined),
+                ),
               ),
             ],
           ),
@@ -231,11 +255,13 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          const Icon(Icons.people_outline, size: 18, color: Colors.grey),
-          const SizedBox(width: 8),
-          Text(l10n.edAttendees),
-        ]),
+        Row(
+          children: [
+            const Icon(Icons.people_outline, size: 18, color: Colors.grey),
+            const SizedBox(width: 8),
+            Text(l10n.edAttendees),
+          ],
+        ),
         const SizedBox(height: 6),
         if (_attendees.isNotEmpty)
           Wrap(
@@ -244,8 +270,10 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             children: [
               for (final a in _attendees)
                 InputChip(
-                  label: Text(a.displayName ?? a.email,
-                      style: const TextStyle(fontSize: 12)),
+                  label: Text(
+                    a.displayName ?? a.email,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                   avatar: _responseAvatar(a.response),
                   onDeleted: () => setState(() => _attendees.remove(a)),
                 ),
@@ -265,38 +293,41 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
           },
           fieldViewBuilder: (context, controller, focusNode, onSubmit) {
             _inviteeCtl = controller;
-            return Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  decoration: InputDecoration(
+            return Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
                       hintText: l10n.edInviteeHint,
-                      isDense: true),
-                  onSubmitted: (v) {
-                    // Есть подсказки → Enter выбирает выделенную (onSubmit →
-                    // onSelected добавит участника), затем чистим поле. Иначе,
-                    // если введён «сырой» email — добавляем его вручную.
-                    if (_matchingContacts(v).isNotEmpty) {
-                      onSubmit();
-                      controller.clear();
-                    } else if (v.trim().contains('@')) {
-                      _addInviteeEmail(v.trim(), null);
+                      isDense: true,
+                    ),
+                    onSubmitted: (v) {
+                      // Есть подсказки → Enter выбирает выделенную (onSubmit →
+                      // onSelected добавит участника), затем чистим поле. Иначе,
+                      // если введён «сырой» email — добавляем его вручную.
+                      if (_matchingContacts(v).isNotEmpty) {
+                        onSubmit();
+                        controller.clear();
+                      } else if (v.trim().contains('@')) {
+                        _addInviteeEmail(v.trim(), null);
+                        controller.clear();
+                      }
+                    },
+                  ),
+                ),
+                IconButton(
+                  onPressed: () {
+                    if (controller.text.trim().contains('@')) {
+                      _addInviteeEmail(controller.text.trim(), null);
                       controller.clear();
                     }
                   },
+                  icon: const Icon(Icons.add_circle_outline),
                 ),
-              ),
-              IconButton(
-                onPressed: () {
-                  if (controller.text.trim().contains('@')) {
-                    _addInviteeEmail(controller.text.trim(), null);
-                    controller.clear();
-                  }
-                },
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-            ]);
+              ],
+            );
           },
         ),
       ],
@@ -311,17 +342,22 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     final q = value.trim().toLowerCase();
     if (q.isEmpty) return const <ContactRow>[];
     final contacts = ref.read(contactsStreamProvider).value ?? const [];
-    final matched = contacts
-        .where((c) =>
-            c.displayName.toLowerCase().contains(q) ||
-            c.email.toLowerCase().contains(q))
-        .toList()
-      ..sort((a, b) {
-        final byUse = b.useCount.compareTo(a.useCount);
-        return byUse != 0
-            ? byUse
-            : a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
-      });
+    final matched =
+        contacts
+            .where(
+              (c) =>
+                  c.displayName.toLowerCase().contains(q) ||
+                  c.email.toLowerCase().contains(q),
+            )
+            .toList()
+          ..sort((a, b) {
+            final byUse = b.useCount.compareTo(a.useCount);
+            return byUse != 0
+                ? byUse
+                : a.displayName.toLowerCase().compareTo(
+                    b.displayName.toLowerCase(),
+                  );
+          });
     return matched;
   }
 
@@ -330,7 +366,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     if (_attendees.any((a) => a.email == email)) return;
     setState(() => _attendees.add(Attendee(email: email, displayName: name)));
     // Отметить частоту — в следующий раз этот контакт будет выше в подсказках.
-    ref.read(contactRepositoryProvider).bumpUse(email: email, displayName: name);
+    ref
+        .read(contactRepositoryProvider)
+        .bumpUse(email: email, displayName: name);
   }
 
   Widget? _responseAvatar(ResponseStatus r) {
@@ -341,8 +379,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       _ => (Icons.schedule, Colors.grey),
     };
     return CircleAvatar(
-        backgroundColor: Colors.transparent,
-        child: Icon(icon, size: 14, color: color));
+      backgroundColor: Colors.transparent,
+      child: Icon(icon, size: 14, color: color),
+    );
   }
 
   /// Повторение (FR-E6): диалог в стиле Outlook (см. recurrence_editor.dart).
@@ -354,15 +393,20 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.repeat),
       title: Text(l10n.edRepeat),
-      subtitle: Text(isInstance
-          ? l10n.edSeriesInstance
-          : describeRecurrence(context, _recurrenceRule)),
+      subtitle: Text(
+        isInstance
+            ? l10n.edSeriesInstance
+            : describeRecurrence(context, _recurrenceRule),
+      ),
       enabled: !isInstance,
       onTap: isInstance
           ? null
           : () async {
-              final r = await showRecurrenceDialog(context,
-                  initial: _recurrenceRule, start: _start);
+              final r = await showRecurrenceDialog(
+                context,
+                initial: _recurrenceRule,
+                start: _start,
+              );
               if (r == null) return; // отмена
               setState(() => _recurrenceRule = r.isEmpty ? null : r);
             },
@@ -397,21 +441,30 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         onChanged: (v) => setState(() => _visibility = v!),
         items: [
           DropdownMenuItem(
-              value: EventVisibility.defaultVis, child: Text(l10n.edVisDefault)),
+            value: EventVisibility.defaultVis,
+            child: Text(l10n.edVisDefault),
+          ),
           DropdownMenuItem(
-              value: EventVisibility.private, child: Text(l10n.edVisPrivate)),
+            value: EventVisibility.private,
+            child: Text(l10n.edVisPrivate),
+          ),
           DropdownMenuItem(
-              value: EventVisibility.public, child: Text(l10n.edVisPublic)),
+            value: EventVisibility.public,
+            child: Text(l10n.edVisPublic),
+          ),
         ],
       ),
     );
   }
 
   /// Опции видеовстречи: каждая привязанная УЗ, умеющая хостить встречу, +
-  /// сервисы по токену (Zoom/Telemost). Показываем АДРЕС УЗ (крупно) и сервис
-  /// рядом — встреча создаётся от этой УЗ.
+  /// сервисы по токену. Telemost для Yandex CalDAV заводится
+  /// самим календарём, поэтому показываем его для выбранной Yandex-УЗ
+  /// даже без отдельного OAuth-токена.
   List<_ConfOption> _confOptions() {
     final accts = ref.watch(accountsStreamProvider).value ?? const <Account>[];
+    final calendars =
+        ref.watch(calendarsListProvider).value ?? const <Calendar>[];
     final creds = CredentialSource.load();
     final out = <_ConfOption>[];
     for (final a in accts) {
@@ -421,11 +474,50 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         out.add(_ConfOption(ConferenceType.meet, a.id, a.email, 'Meet'));
       }
     }
+    final nativeTelemostAccount = yandexTelemostAccountForCalendar(
+      calendarId: _calendarId,
+      calendars: calendars,
+      accounts: accts,
+    );
+    if (nativeTelemostAccount != null) {
+      out.add(
+        _ConfOption(
+          ConferenceType.telemost,
+          nativeTelemostAccount.id,
+          nativeTelemostAccount.email,
+          'Telemost',
+        ),
+      );
+    }
     if (creds.zoomClientId != null) {
       out.add(_ConfOption(ConferenceType.zoom, null, 'Zoom', 'Zoom'));
     }
-    if (creds.telemostToken != null) {
-      out.add(_ConfOption(ConferenceType.telemost, null, 'Telemost', 'Telemost'));
+    if (nativeTelemostAccount == null && creds.telemostToken != null) {
+      out.add(
+        _ConfOption(ConferenceType.telemost, null, 'Telemost', 'Telemost'),
+      );
+    }
+    final existingConference = widget.existing?.conference;
+    if (existingConference != null &&
+        existingConference.isReady &&
+        _conference == existingConference.type &&
+        _conferenceAccountId == existingConference.accountId &&
+        out.every(
+          (option) =>
+              option.type != existingConference.type ||
+              option.accountId != existingConference.accountId,
+        )) {
+      // Keep an already attached/detected link visible even when its original
+      // host account is unavailable. This is informational and does not turn
+      // an external link into a request for a native meeting.
+      out.add(
+        _ConfOption(
+          existingConference.type,
+          existingConference.accountId,
+          conferenceLabel(existingConference.type),
+          '',
+        ),
+      );
     }
     return out;
   }
@@ -433,15 +525,25 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   Widget _conferenceRow() {
     final l10n = L10n.of(context);
     final opts = _confOptions();
-    final selectedKey = _conference == null
+    var selectedKey = _conference == null
         ? null
         : '${_conference!.name}|${_conferenceAccountId ?? ''}';
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.videocam_outlined),
-      title: Text(l10n.edConference),
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButton<String?>(
+    // A detected/external meeting can have no corresponding configured host.
+    // Show no selected option instead of silently treating it as a request for
+    // a new native meeting in the currently selected Yandex calendar.
+    if (selectedKey != null &&
+        opts.every((option) => option.key != selectedKey)) {
+      selectedKey = null;
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // В desktop-диалоге доступно 448 dp после padding. На телефоне
+        // dropdown переносим под заголовок, чтобы он не сжимал
+        // «Видеовстреча» до одной буквы в строке.
+        final compact = constraints.maxWidth < 420;
+        final dropdown = DropdownButton<String?>(
+          key: const ValueKey('event-editor-conference-dropdown'),
+          isExpanded: true,
           value: selectedKey,
           hint: Text(l10n.edNone),
           items: [
@@ -449,12 +551,27 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             for (final o in opts)
               DropdownMenuItem(
                 value: o.key,
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(o.account),
-                  const SizedBox(width: 6),
-                  Text('· ${o.service}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                ]),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        o.account,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (o.service.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '· ${o.service}',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
           ],
           onChanged: (key) => setState(() {
@@ -467,51 +584,185 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
               _conferenceAccountId = o.accountId;
             }
           }),
-        ),
-        // (+) — подключить новый конференц-аккаунт
-        IconButton(
+        );
+        final addButton = IconButton(
           tooltip: l10n.edConnectAccount,
           icon: const Icon(Icons.add_circle_outline, size: 20),
           onPressed: () => openAddAccount(context),
-        ),
-      ]),
+        );
+        final label = Text(
+          l10n.edConference,
+          key: const ValueKey('event-editor-conference-label'),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+        );
+
+        if (!compact) {
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.videocam_outlined),
+            title: label,
+            trailing: SizedBox(
+              width: constraints.maxWidth * 0.5,
+              child: Row(
+                children: [
+                  Expanded(child: dropdown),
+                  addButton,
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 40,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Icon(Icons.videocam_outlined),
+                    ),
+                  ),
+                  Expanded(child: label),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Padding(
+                padding: const EdgeInsets.only(left: 40),
+                child: Row(
+                  children: [
+                    Expanded(child: dropdown),
+                    addButton,
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _calendarPicker(List<Calendar> cals) => ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.calendar_today_outlined),
-        title: Text(L10n.of(context).edCalendar),
-        trailing: DropdownButton<String>(
-          value: _calendarId,
-          onChanged: (v) => setState(() => _calendarId = v),
-          items: [
-            for (final c in cals)
-              DropdownMenuItem(
-                value: c.id,
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
+  Widget _calendarPicker(List<Calendar> cals) => LayoutBuilder(
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 420;
+      final dropdown = DropdownButton<String>(
+        key: const ValueKey('event-editor-calendar-dropdown'),
+        isExpanded: true,
+        value: cals.any((calendar) => calendar.id == _calendarId)
+            ? _calendarId
+            : null,
+        onChanged: (v) =>
+            setState(() => _applyCalendarSelection(v, cals)),
+        items: [
+          for (final c in cals)
+            DropdownMenuItem(
+              value: c.id,
+              child: Row(
+                children: [
                   Container(
-                      width: 10, height: 10,
-                      decoration: BoxDecoration(
-                          color: Color(c.effectiveColor), shape: BoxShape.circle)),
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Color(c.effectiveColor),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                   const SizedBox(width: 8),
-                  Text(c.effectiveName),
-                ]),
+                  Expanded(
+                    child: Text(
+                      c.effectiveName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
+            ),
+        ],
+      );
+      final label = Text(
+        L10n.of(context).edCalendar,
+        key: const ValueKey('event-editor-calendar-label'),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+      );
+
+      if (!compact) {
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.calendar_today_outlined),
+          title: label,
+          trailing: SizedBox(
+            width: constraints.maxWidth * 0.5,
+            child: dropdown,
+          ),
+        );
+      }
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const SizedBox(
+                  width: 40,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Icon(Icons.calendar_today_outlined),
+                  ),
+                ),
+                Expanded(child: label),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Padding(padding: const EdgeInsets.only(left: 40), child: dropdown),
           ],
         ),
       );
+    },
+  );
+
+  void _applyCalendarSelection(String? calendarId, List<Calendar> calendars) {
+    // Native Telemost belongs to the selected Yandex account. If the event is
+    // moved to another provider/account, clear that choice rather than falling
+    // through to the standalone API or sending a marker for the wrong account.
+    if (_conference == ConferenceType.telemost &&
+        _conferenceAccountId != null &&
+        calendars
+            .where((calendar) => calendar.id == calendarId)
+            .every(
+              (calendar) => calendar.accountId != _conferenceAccountId,
+            )) {
+      _conference = null;
+      _conferenceAccountId = null;
+    }
+    _calendarId = calendarId;
+  }
 
   Widget _dateTimeRow(
-      String label, DateTime value, ValueChanged<DateTime> onChange) {
+    String label,
+    DateTime value,
+    ValueChanged<DateTime> onChange,
+  ) {
     String two(int v) => v.toString().padLeft(2, '0');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           SizedBox(
-              width: 64,
-              child: Text(label, style: const TextStyle(color: Colors.grey))),
+            width: 64,
+            child: Text(label, style: const TextStyle(color: Colors.grey)),
+          ),
           TextButton(
             onPressed: () async {
               final d = await showDatePicker(
@@ -521,8 +772,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
                 lastDate: DateTime(2035),
               );
               if (d != null) {
-                onChange(DateTime(
-                    d.year, d.month, d.day, value.hour, value.minute));
+                onChange(
+                  DateTime(d.year, d.month, d.day, value.hour, value.minute),
+                );
               }
             },
             child: Text('${two(value.day)}.${two(value.month)}.${value.year}'),
@@ -531,12 +783,22 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
             TextButton(
               onPressed: () async {
                 final t = await showTimePicker(
-                    context: context,
-                    initialTime:
-                        TimeOfDay(hour: value.hour, minute: value.minute));
+                  context: context,
+                  initialTime: TimeOfDay(
+                    hour: value.hour,
+                    minute: value.minute,
+                  ),
+                );
                 if (t != null) {
-                  onChange(DateTime(value.year, value.month, value.day,
-                      t.hour, t.minute));
+                  onChange(
+                    DateTime(
+                      value.year,
+                      value.month,
+                      value.day,
+                      t.hour,
+                      t.minute,
+                    ),
+                  );
                 }
               },
               child: Text('${two(value.hour)}:${two(value.minute)}'),
@@ -553,8 +815,10 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   }
 
   Future<void> _save(List<Calendar> cals) async {
-    final cal =
-        cals.firstWhere((c) => c.id == _calendarId, orElse: () => cals.first);
+    final cal = cals.firstWhere(
+      (c) => c.id == _calendarId,
+      orElse: () => cals.first,
+    );
     final existing = widget.existing;
 
     Conference? conf = existing?.conference;
@@ -610,11 +874,10 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     }
     if (mounted) Navigator.pop(context);
   }
-
 }
 
-/// Опция поля «Видеовстреча»: сервис + УЗ-хост (для Teams/Meet) или сам сервис
-/// (Zoom/Telemost). [account] — что показываем крупно (адрес УЗ или имя сервиса).
+/// Опция поля «Видеовстреча»: сервис + УЗ-хост или сам standalone-сервис.
+/// [account] — что показываем крупно (адрес УЗ или имя сервиса).
 class _ConfOption {
   const _ConfOption(this.type, this.accountId, this.account, this.service);
   final ConferenceType type;

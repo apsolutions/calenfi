@@ -17,16 +17,17 @@ class Conference {
   /// пустым — тогда встречу создаст сам провайдер календаря (Teams↔O365,
   /// Meet↔Google).
   const Conference.pending(this.type, {this.accountId})
-      : joinUrl = '',
-        meetingId = null,
-        password = null;
+    : joinUrl = '',
+      meetingId = null,
+      password = null;
 
   final ConferenceType type;
   final String joinUrl;
   final String? meetingId;
   final String? password;
 
-  /// УЗ-хост встречи (Graph→Teams, Google→Meet). null → выбрать первую подходящую.
+  /// УЗ-хост встречи (Graph→Teams, Google→Meet, Yandex→Telemost).
+  /// null → выбрать первую подходящую.
   final String? accountId;
 
   /// Реальная (уже заведённая) конференция — есть ссылка. Пустой [joinUrl]
@@ -36,12 +37,12 @@ class Conference {
 
 /// Человекочитаемое имя типа конференции (для встраивания ссылки в тело).
 String conferenceLabel(ConferenceType t) => switch (t) {
-      ConferenceType.meet => 'Google Meet',
-      ConferenceType.teams => 'Teams',
-      ConferenceType.zoom => 'Zoom',
-      ConferenceType.telemost => 'Telemost',
-      ConferenceType.unknown => 'Видеовстреча',
-    };
+  ConferenceType.meet => 'Google Meet',
+  ConferenceType.teams => 'Teams',
+  ConferenceType.zoom => 'Zoom',
+  ConferenceType.telemost => 'Telemost',
+  ConferenceType.unknown => 'Видеовстреча',
+};
 
 /// Тело события (DESCRIPTION/Body) с встроенной ссылкой на внешне заведённую
 /// конференцию — чтобы ссылка была видна в других клиентах и переразбиралась
@@ -49,6 +50,9 @@ String conferenceLabel(ConferenceType t) => switch (t) {
 /// возвращает [description] без изменений.
 String? descriptionWithConference(String? description, Conference? conf) {
   if (conf == null || !conf.isReady) return description;
+  // Providers such as Yandex put the generated link into DESCRIPTION on the
+  // server. Do not prepend the same URL on every subsequent edit/sync.
+  if (description?.contains(conf.joinUrl) ?? false) return description;
   final line = 'Подключиться (${conferenceLabel(conf.type)}): ${conf.joinUrl}';
   return (description == null || description.isEmpty)
       ? line

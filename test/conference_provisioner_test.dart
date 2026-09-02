@@ -40,6 +40,9 @@ void main() {
     expect(ConferenceProvisioner.nativeCapable(ConferenceType.meet, google), isTrue);
     expect(ConferenceProvisioner.nativeCapable(ConferenceType.teams, google), isFalse);
     expect(ConferenceProvisioner.nativeCapable(ConferenceType.meet, yandex), isFalse);
+    expect(
+        ConferenceProvisioner.nativeCapable(ConferenceType.telemost, yandex),
+        isTrue);
     expect(ConferenceProvisioner.nativeCapable(ConferenceType.zoom, graph), isFalse);
   });
 
@@ -53,10 +56,8 @@ void main() {
     expect(meet.isReady, isFalse);
   });
 
-  test('Zoom/Telemost без кредов → внятная ошибка', () async {
+  test('Zoom без кредов → внятная ошибка', () async {
     expect(() => resolve(ConferenceType.zoom, yandex, [yandex]),
-        throwsA(isA<ConferenceUnavailableException>()));
-    expect(() => resolve(ConferenceType.telemost, yandex, [yandex]),
         throwsA(isA<ConferenceUnavailableException>()));
   });
 

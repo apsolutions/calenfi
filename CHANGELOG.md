@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-09-03
+
+### Added
+- A selected Yandex Calendar account can now create a Telemost meeting
+  natively through Yandex's CalDAV extension. This includes Yandex 360
+  organisation addresses on custom domains and does not require a separate
+  Telemost OAuth connection.
+
+### Fixed
+- Linux and Windows now discover healthy databases and account state in
+  retired application/vendor support directories without relying on embedded
+  historical identifiers. Discovery is limited to the known support-directory
+  depth, and canonical data remains authoritative.
+- The Calendar and Video meeting rows no longer collapse or wrap one letter
+  per line in the mobile event editor. Long calendar/account names are
+  ellipsized, while the desktop dialog keeps its horizontal layout.
+- The selected conference host account now survives a local database
+  round-trip, so a deferred sync provisions the meeting with the intended
+  account.
+- An edited event keeps its original calendar while calendar data is still
+  loading instead of silently falling back to the first calendar.
+- Existing Yandex Telemost URLs are recognised from CalDAV and are not
+  duplicated in the description during later edits.
+- An external Telemost link in an event description is no longer mistaken for
+  a request to create a new native Yandex meeting.
+- Standalone Telemost creation uses Yandex's current documented API endpoint.
+
 ## [0.3.3] — 2026-09-02
 
 ### Fixed
@@ -25,8 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Linux, Android and Windows now consistently display **Calenfi** and use the
   canonical `ru.apsolutions.calenfi` desktop/application identity.
-- On Linux, a database from `money.click2.calenfi.calenfi` (or the intermediate
-  `io.github.karpovilia.calenfi` id) is migrated with SQLite's online backup on
+- On Linux, a database from a supported legacy application id is migrated with
+  SQLite's online backup on
   first launch. The source database is retained as a rollback copy, and both
   the GUI and agent CLI resolve the same canonical path.
 - An incomplete system-keyring record is now repaired once from the retained
@@ -205,7 +232,9 @@ First public release.
   (libsecret / Keychain / DPAPI), with an encrypted-at-rest file fallback and
   `flutter_secure_storage` on mobile.
 
-[Unreleased]: https://github.com/apsolutions/calenfi/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/apsolutions/calenfi/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/apsolutions/calenfi/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/apsolutions/calenfi/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/apsolutions/calenfi/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/apsolutions/calenfi/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/apsolutions/calenfi/compare/v0.2.1...v0.3.0

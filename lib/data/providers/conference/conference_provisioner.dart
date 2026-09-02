@@ -6,6 +6,7 @@ import '../../../domain/models/account.dart';
 import '../../../domain/models/calendar_event.dart';
 import '../../../domain/models/conference.dart';
 import '../../../domain/models/enums.dart';
+import '../../../domain/providers/yandex_caldav.dart';
 import '../../repositories/event_repository.dart';
 import '../../secure/credential_source.dart';
 import '../calendar/google/google_token.dart';
@@ -35,8 +36,8 @@ class ConferenceProvisioner {
       {Dio? dio, CredentialSource? credentials, String? telemostBaseUrl})
       : _dio = dio ?? Dio(),
         _creds = credentials ?? CredentialSource.load(),
-        _telemostBaseUrl =
-            telemostBaseUrl ?? 'https://api.telemost.yandex.ru/v1/conferences';
+        _telemostBaseUrl = telemostBaseUrl ??
+            'https://cloud-api.yandex.net/v1/telemost-api/conferences';
 
   final Dio _dio;
   final CredentialSource _creds;
@@ -45,12 +46,14 @@ class ConferenceProvisioner {
   final String _telemostBaseUrl;
 
   /// Умеет ли провайдер календаря [target] завести конференцию [type] нативно
-  /// в самом событии (без отдельного API/прав): Graph→Teams, Google→Meet.
+  /// в самом событии (без отдельного API/прав): Graph→Teams, Google→Meet,
+  /// Yandex CalDAV→Telemost (`X-TELEMOST-REQUIRED`).
   static bool nativeCapable(ConferenceType type, Account? target) {
     if (target == null) return false;
     return (type == ConferenceType.teams &&
             target.provider == ProviderType.graph) ||
-        (type == ConferenceType.meet && target.provider == ProviderType.google);
+        (type == ConferenceType.meet && target.provider == ProviderType.google) ||
+        (type == ConferenceType.telemost && isYandexCalDavAccount(target));
   }
 
   /// Если у [e] «ожидающая» конференция (пустой joinUrl) — заводит её и, для
@@ -74,7 +77,13 @@ class ConferenceProvisioner {
       end: e.endUtc,
       subject: e.title,
     );
-    if (!resolved.isReady) return e; // нативно — пусть провайдер календаря
+    if (!resolved.isReady) {
+      // Keep the canonical target account on the pending marker. This matters
+      // for CLI-created events, whose initial Conference.pending has no
+      // accountId, and lets provider serializers distinguish an explicit
+      // native request from an arbitrary meeting URL found in DESCRIPTION.
+      return e.copyWith(conference: resolved);
+    }
     final updated = e.copyWith(conference: resolved);
     await events.putLocalDirty(updated);
     return updated;
@@ -97,7 +106,7 @@ class ConferenceProvisioner {
     // Нативно только если хост = УЗ календаря (её провайдер создаст встречу сам).
     final hostIsTarget = (accountId == null || accountId == target?.id);
     if (hostIsTarget && nativeCapable(type, target)) {
-      return Conference.pending(type, accountId: accountId);
+      return Conference.pending(type, accountId: target!.id);
     }
     switch (type) {
       case ConferenceType.teams:

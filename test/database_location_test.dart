@@ -29,6 +29,76 @@ void main() {
     expect(directory.path, p.join(xdg, kApplicationId));
   });
 
+  test(
+    'Linux discovers a healthy database in an unnamed direct sibling',
+    () async {
+      final xdg = Directory(p.join(temporaryRoot.path, 'share'))
+        ..createSync(recursive: true);
+      final validDirectory = Directory(p.join(xdg.path, 'retired-app-id'))
+        ..createSync();
+      _writeCalenfiDatabase(
+        File(p.join(validDirectory.path, kDbFileName)),
+        'discovered event',
+      );
+
+      final corruptDirectory = Directory(p.join(xdg.path, 'newer-corrupt-id'))
+        ..createSync();
+      final corrupt = File(p.join(corruptDirectory.path, kDbFileName))
+        ..writeAsStringSync('not a SQLite database')
+        ..setLastModifiedSync(DateTime.utc(2028));
+      expect(corrupt.existsSync(), isTrue);
+
+      final tooDeep = Directory(
+        p.join(xdg.path, 'unrelated-app', 'retired-app-id'),
+      )..createSync(recursive: true);
+      _writeCalenfiDatabase(
+        File(p.join(tooDeep.path, kDbFileName)),
+        'must not be scanned',
+      );
+
+      final environment = <String, String>{'XDG_DATA_HOME': xdg.path};
+      final candidates = linuxLegacyApplicationSupportDirectories(
+        environment: environment,
+      );
+
+      expect(
+        candidates.first.path,
+        p.join(xdg.path, kLegacyApplicationIds.first),
+      );
+      expect(
+        candidates.map((directory) => directory.path),
+        containsAll(<String>[validDirectory.path, corruptDirectory.path]),
+      );
+      expect(
+        candidates.map((directory) => directory.path),
+        isNot(contains(tooDeep.path)),
+      );
+
+      final result = await prepareLinuxDatabaseFile(environment: environment);
+
+      expect(result.path, p.join(xdg.path, kApplicationId, kDbFileName));
+      expect(_readValues(result), <String>['discovered event']);
+      expect(corrupt.readAsStringSync(), 'not a SQLite database');
+    },
+  );
+
+  test('Linux canonical database outranks an unnamed legacy sibling', () async {
+    final xdg = Directory(p.join(temporaryRoot.path, 'share'))
+      ..createSync(recursive: true);
+    final canonical = File(p.join(xdg.path, kApplicationId, kDbFileName));
+    _writeCalenfiDatabase(canonical, 'canonical event');
+    final legacy = File(p.join(xdg.path, 'retired-app-id', kDbFileName));
+    _writeCalenfiDatabase(legacy, 'legacy event');
+    legacy.setLastModifiedSync(DateTime.utc(2028));
+
+    final result = await prepareLinuxDatabaseFile(
+      environment: <String, String>{'XDG_DATA_HOME': xdg.path},
+    );
+
+    expect(result.path, canonical.path);
+    expect(_readValues(result), <String>['canonical event']);
+  });
+
   test('Windows migration includes the v0.3.1 lower-case product path', () {
     final canonical = Directory(
       p.join(temporaryRoot.path, 'apsolutions', 'Calenfi'),
@@ -43,13 +113,74 @@ void main() {
   });
 
   test(
+    'Windows discovers coherent state below an unnamed vendor directory',
+    () async {
+      final canonical = Directory(
+        p.join(temporaryRoot.path, 'current-vendor', 'Calenfi'),
+      );
+      final legacy = Directory(
+        p.join(temporaryRoot.path, 'retired-vendor', 'calenfi'),
+      )..createSync(recursive: true);
+      _writeCalenfiDatabase(
+        File(p.join(legacy.path, kDbFileName)),
+        'discovered Windows event',
+      );
+      File(
+        p.join(legacy.path, 'accounts.json'),
+      ).writeAsStringSync(_accountsJson('discovered'));
+      File(
+        p.join(legacy.path, 'secrets.dpapi'),
+      ).writeAsStringSync('discovered ciphertext');
+
+      final tooDeep = Directory(
+        p.join(temporaryRoot.path, 'unrelated-vendor', 'nested', 'calenfi'),
+      )..createSync(recursive: true);
+      _writeCalenfiDatabase(
+        File(p.join(tooDeep.path, kDbFileName)),
+        'must not be scanned',
+      );
+
+      final candidates = windowsLegacyApplicationSupportDirectories(canonical);
+
+      expect(
+        candidates.first.path,
+        p.join(temporaryRoot.path, 'current-vendor', 'calenfi'),
+      );
+      expect(
+        candidates.map((directory) => directory.path),
+        contains(legacy.path),
+      );
+      expect(
+        candidates.map((directory) => directory.path),
+        isNot(contains(tooDeep.path)),
+      );
+
+      await prepareWindowsAncillaryState(targetDirectory: canonical);
+      final database = await prepareDatabaseFile(
+        targetDirectory: canonical,
+        legacyDirectories: candidates,
+      );
+
+      expect(_readValues(database), <String>['discovered Windows event']);
+      expect(
+        File(p.join(canonical.path, 'accounts.json')).readAsStringSync(),
+        _accountsJson('discovered'),
+      );
+      expect(
+        File(p.join(canonical.path, 'secrets.dpapi')).readAsStringSync(),
+        'discovered ciphertext',
+      );
+    },
+  );
+
+  test(
     'Windows ancillary migration copies missing state without overwrites',
     () async {
       final canonical = Directory(
         p.join(temporaryRoot.path, 'apsolutions', 'calenfi'),
       )..createSync(recursive: true);
       final legacy = Directory(
-        p.join(temporaryRoot.path, 'io.github.karpovilia', 'calenfi'),
+        p.join(temporaryRoot.path, 'legacy-vendor', 'calenfi'),
       )..createSync(recursive: true);
       File(
         p.join(canonical.path, 'accounts.json'),

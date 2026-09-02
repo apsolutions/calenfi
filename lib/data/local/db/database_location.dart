@@ -29,15 +29,13 @@ const _ancillaryFileNames = <String>[
 ];
 final _inProcessLocks = <String, _AsyncLock>{};
 
-/// Identifiers used by Linux builds released before the AP Solutions rename.
+/// Product names used by builds released before the AP Solutions rename.
 ///
-/// Keep these values only for one-way, non-destructive data migration. New
-/// files must always be created below [kApplicationId].
-const List<String> kLegacyApplicationIds = <String>[
-  'money.click2.calenfi.calenfi',
-  'io.github.karpovilia.calenfi',
-  'calenfi',
-];
+/// Keep these values only for preferred one-way migration paths. Unnamed old
+/// application/vendor directories are discovered from a tightly bounded set
+/// of siblings and still have to pass the normal data-health checks. New files
+/// must always be created below [kApplicationId].
+const List<String> kLegacyApplicationIds = <String>['calenfi'];
 
 /// Canonical Linux application-support directory.
 ///
@@ -55,36 +53,123 @@ List<Directory> linuxLegacyApplicationSupportDirectories({
   Map<String, String>? environment,
 }) {
   final canonical = linuxApplicationSupportDirectory(environment: environment);
-  return <Directory>[
+  final preferred = <Directory>[
     for (final id in kLegacyApplicationIds)
       Directory(p.join(canonical.parent.path, id)),
   ];
+  final discovered = _directChildDirectories(
+    canonical.parent,
+  ).where(_hasDatabaseFile);
+  return _orderedLegacyDirectories(
+    canonical: canonical,
+    preferred: preferred,
+    discovered: discovered,
+  );
 }
 
-/// Legacy Windows support directories derived from historical version-info.
+/// Legacy Windows support directories derived from the support-path shape.
 ///
 /// `path_provider_windows` builds the support path as
-/// `%APPDATA%/<CompanyName>/<ProductName>`. Keep the v0.3.1 lower-case product
-/// name explicitly: it may be distinct on a case-sensitive Windows volume or
-/// in tests even though normal NTFS installations treat both paths as equal.
+/// `%APPDATA%/<CompanyName>/<ProductName>`. The vendor is discovered among the
+/// direct APPDATA children without embedding retired identifiers. Keep the
+/// lower-case product name explicitly: it may be distinct on a case-sensitive
+/// Windows volume or in tests even though normal NTFS installations treat both
+/// paths as equal.
 List<Directory> windowsLegacyApplicationSupportDirectories(
   Directory canonical,
 ) {
   final roaming = canonical.parent.parent;
-  return <Directory>[
+  final preferred = <Directory>[
     Directory(p.join(canonical.parent.path, 'calenfi')),
-    Directory(p.join(roaming.path, 'io.github.karpovilia', 'calenfi')),
-    Directory(p.join(roaming.path, 'money.click2.calenfi', 'calenfi')),
     Directory(p.join(roaming.path, 'calenfi')),
   ];
+  final productNames = <String>{
+    p.basename(canonical.path),
+    ...kLegacyApplicationIds,
+  };
+  final discovered = <Directory>[];
+  for (final vendor in _directChildDirectories(roaming)) {
+    for (final productName in productNames) {
+      final candidate = Directory(p.join(vendor.path, productName));
+      if (_isDirectoryWithoutFollowingLinks(candidate) &&
+          _hasRecognizableSupportState(candidate)) {
+        discovered.add(candidate);
+      }
+    }
+  }
+  return _orderedLegacyDirectories(
+    canonical: canonical,
+    preferred: preferred,
+    discovered: discovered,
+  );
+}
+
+/// Returns direct child directories only. Legacy discovery deliberately never
+/// walks an entire user profile: Linux app ids are siblings below XDG data,
+/// while Windows support paths have exactly one vendor level below APPDATA.
+List<Directory> _directChildDirectories(Directory parent) {
+  try {
+    final result = parent
+        .listSync(followLinks: false)
+        .whereType<Directory>()
+        .toList();
+    result.sort((a, b) => a.path.compareTo(b.path));
+    return result;
+  } on FileSystemException {
+    return const <Directory>[];
+  }
+}
+
+bool _isDirectoryWithoutFollowingLinks(Directory directory) {
+  try {
+    return FileSystemEntity.typeSync(directory.path, followLinks: false) ==
+        FileSystemEntityType.directory;
+  } on FileSystemException {
+    return false;
+  }
+}
+
+bool _isFileWithoutFollowingLinks(String path) {
+  try {
+    return FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.file;
+  } on FileSystemException {
+    return false;
+  }
+}
+
+bool _hasDatabaseFile(Directory directory) =>
+    _isFileWithoutFollowingLinks(p.join(directory.path, kDbFileName));
+
+bool _hasRecognizableSupportState(Directory directory) {
+  if (_hasDatabaseFile(directory)) return true;
+  for (final name in _ancillaryFileNames) {
+    if (_isFileWithoutFollowingLinks(p.join(directory.path, name))) return true;
+  }
+  return _isDirectoryWithoutFollowingLinks(
+    Directory(p.join(directory.path, '.tokens')),
+  );
+}
+
+List<Directory> _orderedLegacyDirectories({
+  required Directory canonical,
+  required Iterable<Directory> preferred,
+  required Iterable<Directory> discovered,
+}) {
+  final result = <Directory>[];
+  final seen = <String>{p.normalize(canonical.path)};
+  for (final directory in <Directory>[...preferred, ...discovered]) {
+    if (seen.add(p.normalize(directory.path))) result.add(directory);
+  }
+  return result;
 }
 
 /// Copies non-database Windows state from pre-v0.3.1 support directories.
 ///
-/// `getApplicationSupportDirectory()` changed when Windows `CompanyName`
-/// changed from `io.github.karpovilia` to `apsolutions`. The database migration
-/// alone is insufficient because `accounts.json` and DPAPI ciphertext live in
-/// that same directory and are needed before `SecretStore` is initialized.
+/// `getApplicationSupportDirectory()` can change when Windows version-info is
+/// updated. The database migration alone is insufficient because
+/// `accounts.json` and DPAPI ciphertext live in that same directory and are
+/// needed before `SecretStore` is initialized.
 /// Existing canonical files always win; legacy files remain as rollback copies.
 Future<void> prepareWindowsAncillaryState({
   required Directory targetDirectory,

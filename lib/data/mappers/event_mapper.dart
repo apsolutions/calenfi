@@ -22,9 +22,12 @@ class EventMapper {
   CalendarEvent toDomain(Event r) {
     // Видеовстреча: явно сохранённая, иначе — распознанная из текста (FR-M1),
     // чтобы кнопка «Присоединиться» появлялась даже когда ссылка в описании.
-    final conference = _decodeConference(r.conferenceJson) ??
+    final conference =
+        _decodeConference(r.conferenceJson) ??
         _conferenceParser.detect(
-            location: r.location, description: r.description);
+          location: r.location,
+          description: r.description,
+        );
     return CalendarEvent(
       id: r.id,
       calendarId: r.calendarId,
@@ -100,7 +103,7 @@ class EventMapper {
               'org': x.isOrganizer,
               'opt': x.optional,
               'res': x.isResource,
-            }
+            },
         ]);
 
   static List<Attendee> _decodeAttendees(String? s) {
@@ -115,7 +118,7 @@ class EventMapper {
           isOrganizer: m['org'] as bool? ?? false,
           optional: m['opt'] as bool? ?? false,
           isResource: m['res'] as bool? ?? false,
-        )
+        ),
     ];
   }
 
@@ -127,6 +130,7 @@ class EventMapper {
           'url': c.joinUrl,
           'id': c.meetingId,
           'pwd': c.password,
+          'accountId': c.accountId,
         });
 
   static Conference? _decodeConference(String? s) {
@@ -137,6 +141,7 @@ class EventMapper {
       joinUrl: m['url'] as String,
       meetingId: m['id'] as String?,
       password: m['pwd'] as String?,
+      accountId: m['accountId'] as String?,
     );
   }
 
@@ -144,7 +149,7 @@ class EventMapper {
   static String? _encodeReminders(List<Reminder> r) => r.isEmpty
       ? null
       : jsonEncode([
-          for (final x in r) {'min': x.before.inMinutes, 'popup': x.popup}
+          for (final x in r) {'min': x.before.inMinutes, 'popup': x.popup},
         ]);
 
   static List<Reminder> _decodeReminders(String? s) {
@@ -155,7 +160,7 @@ class EventMapper {
         Reminder(
           before: Duration(minutes: m['min'] as int),
           popup: m['popup'] as bool? ?? true,
-        )
+        ),
     ];
   }
 }

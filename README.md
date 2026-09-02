@@ -75,16 +75,19 @@ tools/calenfi secret-set --key GRAPH_TENANT    --value "common"
 ### Video conferences (optional)
 
 Attaching a meeting link works out of the box for **Teams** (via a connected
-Microsoft 365 account) and **Google Meet** (via a connected Google account).
-**Zoom** and **Yandex Telemost** need credentials:
+Microsoft 365 account), **Google Meet** (via a connected Google account), and
+**Yandex Telemost** when the event belongs to a connected Yandex CalDAV
+calendar. Native Telemost creation uses the existing Yandex app password and
+does not need a separate OAuth connection. **Zoom**, and Telemost attached to a
+non-Yandex calendar, need additional credentials:
 
 ```bash
 # Zoom — Server-to-Server OAuth app (scope meeting:write)
 tools/calenfi secret-set --key ZOOM_ACCOUNT_ID    --value "…"
 tools/calenfi secret-set --key ZOOM_CLIENT_ID     --value "…"
 tools/calenfi secret-set --key ZOOM_CLIENT_SECRET --value "…"
-# Telemost — connect in Accounts → Add → Telemost (needs a Yandex OAuth app
-# with "Telemost API" access, redirect http://localhost):
+# Standalone Telemost — connect in Accounts → Add → Telemost (needs a Yandex
+# OAuth app with "Telemost API" access, redirect http://localhost):
 tools/calenfi secret-set --key YANDEX_OAUTH_CLIENT_ID     --value "…"
 tools/calenfi secret-set --key YANDEX_OAUTH_CLIENT_SECRET --value "…"
 ```

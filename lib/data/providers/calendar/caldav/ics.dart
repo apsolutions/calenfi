@@ -18,6 +18,7 @@ class VEvent {
     this.attendees = const [],
     this.timeZoneId = 'UTC',
     this.url,
+    this.telemostConferenceUrl,
     this.sequence,
     this.dtStampUtc,
     this.lastModifiedUtc,
@@ -48,6 +49,9 @@ class VEvent {
 
   /// Web-ссылка на событие (Yandex кладёт сюда calendar.yandex.ru/event?...).
   final String? url;
+
+  /// Yandex CalDAV extension populated after the server creates Telemost.
+  final String? telemostConferenceUrl;
 
   /// Поля версии RFC 5545. Нужны для детерминированного выбора
   /// новейшей копии, если legacy-баг создал на сервере несколько
@@ -146,6 +150,7 @@ VEvent? _build(
     attendees: attendees,
     timeZoneId: dtstart.params['TZID'] ?? 'UTC',
     url: p['URL']?.value.trim(),
+    telemostConferenceUrl: p['X-TELEMOST-CONFERENCE']?.value.trim(),
     sequence: int.tryParse(p['SEQUENCE']?.value.trim() ?? ''),
     dtStampUtc: _tryParseDate(p['DTSTAMP']),
     lastModifiedUtc: _tryParseDate(p['LAST-MODIFIED']),
