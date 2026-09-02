@@ -88,6 +88,13 @@ jobs:
       # split-per-abi: отдельный APK на каждую архитектуру (меньше размер).
       # Подпись — debug-ключом (для release-подписи добавьте keystore в secrets).
       - run: flutter build apk --release --split-per-abi
+      - name: Verify release network permission
+        run: |
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -1)"
+          test -n "$AAPT"
+          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
+            "$AAPT" dump permissions "$apk" | grep -Fq "name='android.permission.INTERNET'"
+          done
       - name: Rename APKs
         run: |
           cd build/app/outputs/flutter-apk

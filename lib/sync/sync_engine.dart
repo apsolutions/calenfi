@@ -229,18 +229,39 @@ class SyncEngine {
     return AccountSyncReport(acc.id, error: lastErr);
   }
 
-  static bool _isNetwork(Object? e) {
-    if (e is SocketException) return true;
-    if (e is DioException) {
-      return e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.connectionTimeout ||
-          e.error is SocketException;
+  static bool _isNetwork(Object? error) {
+    Object? cause = error;
+
+    if (error is DioException) {
+      // Dio groups DNS/no-route, refused/reset and TLS failures under
+      // connectionError. Only an underlying SocketException with an explicit
+      // local-network marker proves that the device itself is offline.
+      if (error.type != DioExceptionType.connectionError &&
+          error.type != DioExceptionType.unknown) {
+        return false;
+      }
+      cause = error.error;
     }
-    final s = e.toString().toLowerCase();
-    return s.contains('socketexception') ||
-        s.contains('failed host lookup') ||
-        s.contains('connection refused') ||
-        s.contains('network is unreachable');
+
+    if (cause is! SocketException) return false;
+
+    final details = [
+      cause.message,
+      cause.osError?.message,
+    ].whereType<String>().join(' ').toLowerCase();
+    const offlineMarkers = [
+      'failed host lookup',
+      'name or service not known',
+      'no such host is known',
+      'nodename nor servname provided',
+      'no address associated with hostname',
+      'temporary failure in name resolution',
+      'network is unreachable',
+      'network is down',
+      'no route to host',
+      'unreachable network',
+    ];
+    return offlineMarkers.any(details.contains);
   }
 
   static String _describe(Object? e) {

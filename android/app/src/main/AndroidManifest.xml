@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Все production-провайдеры календарей работают через HTTPS. Это
+         разрешение должно быть именно в main: debug/profile manifest не
+         участвуют в GitHub release APK. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <!-- Уведомления-напоминания о встречах (FR-N) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>

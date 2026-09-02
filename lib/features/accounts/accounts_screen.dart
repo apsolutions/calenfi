@@ -26,14 +26,16 @@ class AccountsScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(L10n.of(context).accTitle)),
       body: accountsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(L10n.of(context).accError(e.toString()))),
+        error: (e, _) =>
+            Center(child: Text(L10n.of(context).accError(e.toString()))),
         data: (accounts) => ListView(
           children: [
             for (final acc in accounts)
               _AccountTile(
                 account: acc,
-                calendars:
-                    calendars.where((c) => c.accountId == acc.id).toList(),
+                calendars: calendars
+                    .where((c) => c.accountId == acc.id)
+                    .toList(),
               ),
             const SizedBox(height: 8),
             Padding(
@@ -62,7 +64,9 @@ class _AccountTile extends ConsumerWidget {
     return ExpansionTile(
       leading: _providerIcon(account.provider),
       title: Text(account.displayName),
-      subtitle: Text('${account.email} · ${_statusLabel(context, account.status)}'),
+      subtitle: Text(
+        '${account.email} · ${_statusLabel(context, account.status)}',
+      ),
       trailing: PopupMenuButton<String>(
         onSelected: (v) async {
           if (v == 'delete') {
@@ -76,11 +80,20 @@ class _AccountTile extends ConsumerWidget {
         itemBuilder: (_) => [
           if (_usesPassword(account.provider))
             PopupMenuItem(
-                value: 'password', child: Text(l10n.accChangePassword)),
+              value: 'password',
+              child: Text(l10n.accChangePassword),
+            ),
           PopupMenuItem(value: 'delete', child: Text(l10n.accDelete)),
         ],
       ),
       children: [
+        if (!account.isHealthy &&
+            (account.lastError?.trim().isNotEmpty ?? false))
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.error_outline, size: 20),
+            title: SelectableText(l10n.accFailed(account.lastError!.trim())),
+          ),
         // Расписание автообновления этого аккаунта (FR-A10).
         ListTile(
           dense: true,
@@ -95,8 +108,11 @@ class _AccountTile extends ConsumerWidget {
                   ? const RefreshPolicy(mode: RefreshMode.manual)
                   : RefreshPolicy(
                       mode: RefreshMode.interval,
-                      interval: Duration(minutes: m));
-              ref.read(accountRepositoryProvider).setRefresh(account.id, policy);
+                      interval: Duration(minutes: m),
+                    );
+              ref
+                  .read(accountRepositoryProvider)
+                  .setRefresh(account.id, policy);
             },
             items: [
               DropdownMenuItem(value: null, child: Text(l10n.accManual)),
@@ -114,21 +130,29 @@ class _AccountTile extends ConsumerWidget {
           ListTile(
             dense: true,
             leading: Container(
-                width: 14, height: 14,
-                decoration: BoxDecoration(
-                    color: Color(c.color), shape: BoxShape.circle)),
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: Color(c.color),
+                shape: BoxShape.circle,
+              ),
+            ),
             title: Text(c.name),
             trailing: c.visible
                 ? null
-                : Text(l10n.accHidden,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                : Text(
+                    l10n.accHidden,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
           ),
         if (calendars.isEmpty)
           ListTile(dense: true, title: Text(l10n.accNoCalendars)),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: Text(l10n.accVisibilityHint,
-              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          child: Text(
+            l10n.accVisibilityHint,
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
         ),
       ],
     );
@@ -155,9 +179,12 @@ class _AccountTile extends ConsumerWidget {
     await writeSecret(varName, pass);
     // Сбрасываем кэш провайдеров, чтобы новый пароль подхватился, и синкаем.
     ref.invalidate(providerRegistryProvider);
-    messenger.showSnackBar(SnackBar(
+    messenger.showSnackBar(
+      SnackBar(
         content: Text(l10n.accPasswordSaved),
-        duration: const Duration(seconds: 2)));
+        duration: const Duration(seconds: 2),
+      ),
+    );
     await ref.read(syncTriggerProvider)();
   }
 
@@ -211,8 +238,10 @@ class _PasswordDialogState extends State<_PasswordDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.email,
-              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Text(
+            widget.email,
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _controller,
@@ -233,8 +262,9 @@ class _PasswordDialogState extends State<_PasswordDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l10n.accCancel)),
+          onPressed: () => Navigator.pop(context),
+          child: Text(l10n.accCancel),
+        ),
         FilledButton(
           onPressed: () => Navigator.pop(context, _controller.text),
           child: Text(l10n.accSave),

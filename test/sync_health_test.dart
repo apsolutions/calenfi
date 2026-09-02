@@ -11,6 +11,7 @@ import 'package:calenfi/domain/models/enums.dart';
 import 'package:calenfi/domain/providers/calendar_provider.dart';
 import 'package:calenfi/domain/providers/provider_capabilities.dart';
 import 'package:calenfi/sync/sync_engine.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,7 +26,8 @@ class _FailingProvider implements CalendarProvider {
   @override
   ProviderCapabilities get caps => ProviderCapabilities.caldav;
   @override
-  Future<AuthResult> authenticate(AccountConfig cfg) async => const AuthResult(success: true);
+  Future<AuthResult> authenticate(AccountConfig cfg) async =>
+      const AuthResult(success: true);
   @override
   Future<void> refreshAuth(Account acc) async {}
   @override
@@ -33,18 +35,55 @@ class _FailingProvider implements CalendarProvider {
     calls++;
     throw error;
   }
+
   @override
-  Future<List<CalendarEvent>> fetchEvents(Account a, Calendar c, DateRange r) async => throw error;
+  Future<List<CalendarEvent>> fetchEvents(
+    Account a,
+    Calendar c,
+    DateRange r,
+  ) async => throw error;
   @override
-  Future<SyncResult> incrementalSync(Account a, Calendar c, String? s) async => throw error;
+  Future<SyncResult> incrementalSync(Account a, Calendar c, String? s) async =>
+      throw error;
   @override
-  Future<CalendarEvent> createEvent(Account a, Calendar c, CalendarEvent e) async => throw error;
+  Future<CalendarEvent> createEvent(
+    Account a,
+    Calendar c,
+    CalendarEvent e,
+  ) async => throw error;
   @override
-  Future<CalendarEvent> updateEvent(Account a, CalendarEvent e) async => throw error;
+  Future<CalendarEvent> updateEvent(Account a, CalendarEvent e) async =>
+      throw error;
   @override
-  Future<void> deleteEvent(Account a, CalendarEvent e, RecurrenceScope s) async => throw error;
+  Future<void> deleteEvent(
+    Account a,
+    CalendarEvent e,
+    RecurrenceScope s,
+  ) async => throw error;
   @override
-  Future<void> respondToInvite(Account a, CalendarEvent e, ResponseStatus r) async => throw error;
+  Future<void> respondToInvite(
+    Account a,
+    CalendarEvent e,
+    ResponseStatus r,
+  ) async => throw error;
+}
+
+DioException _dioError(
+  DioExceptionType type, {
+  Object? error,
+  int? statusCode,
+}) {
+  final request = RequestOptions(
+    path: 'https://graph.microsoft.com/v1.0/me/calendars',
+  );
+  return DioException(
+    requestOptions: request,
+    type: type,
+    error: error,
+    response: statusCode == null
+        ? null
+        : Response<dynamic>(requestOptions: request, statusCode: statusCode),
+  );
 }
 
 void main() {
@@ -53,7 +92,11 @@ void main() {
   late EventRepository events;
 
   const acc = Account(
-      id: 'a', provider: ProviderType.caldav, displayName: 'Test', email: 'a@x.com');
+    id: 'a',
+    provider: ProviderType.caldav,
+    displayName: 'Test',
+    email: 'a@x.com',
+  );
 
   setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
@@ -64,14 +107,21 @@ void main() {
   tearDown(() => db.close());
 
   SyncEngine engineWith(CalendarProvider p) => SyncEngine(
-        registry: ProviderRegistry(overrideFactory: (_) => p),
-        accounts: accounts,
-        events: events,
-      );
+    registry: ProviderRegistry(overrideFactory: (_) => p),
+    accounts: accounts,
+    events: events,
+  );
 
   group('Надёжность синка (FR-A6, критично)', () {
-    test('сетевая ошибка → 3 попытки → статус offline', () async {
-      final p = _FailingProvider(const SocketException('no network'));
+    test('DNS ошибка → 3 попытки → статус offline', () async {
+      final p = _FailingProvider(
+        _dioError(
+          DioExceptionType.connectionError,
+          error: const SocketException(
+            'Failed host lookup: graph.microsoft.com',
+          ),
+        ),
+      );
       final report = await engineWith(p).syncAccount(acc);
 
       expect(report.ok, isFalse);
@@ -79,6 +129,63 @@ void main() {
       final updated = (await accounts.allAccounts()).first;
       expect(updated.status, AccountStatus.offline);
       expect(updated.lastError, isNotNull);
+    });
+
+    test('SocketException no route → offline', () async {
+      final p = _FailingProvider(
+        const SocketException(
+          'Connection failed',
+          osError: OSError('Network is unreachable', 101),
+        ),
+      );
+      await engineWith(p).syncAccount(acc);
+
+      final updated = (await accounts.allAccounts()).first;
+      expect(updated.status, AccountStatus.offline);
+    });
+
+    test('Dio connection timeout → syncError, а не offline', () async {
+      final p = _FailingProvider(_dioError(DioExceptionType.connectionTimeout));
+      await engineWith(p).syncAccount(acc);
+
+      final updated = (await accounts.allAccounts()).first;
+      expect(updated.status, AccountStatus.syncError);
+    });
+
+    test('connection refused → syncError, а не offline', () async {
+      final p = _FailingProvider(
+        _dioError(
+          DioExceptionType.connectionError,
+          error: const SocketException('Connection refused'),
+        ),
+      );
+      await engineWith(p).syncAccount(acc);
+
+      final updated = (await accounts.allAccounts()).first;
+      expect(updated.status, AccountStatus.syncError);
+    });
+
+    test('TLS failure → syncError, а не offline', () async {
+      final p = _FailingProvider(
+        _dioError(
+          DioExceptionType.connectionError,
+          error: HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+        ),
+      );
+      await engineWith(p).syncAccount(acc);
+
+      final updated = (await accounts.allAccounts()).first;
+      expect(updated.status, AccountStatus.syncError);
+    });
+
+    test('HTTP 503 → syncError, а не offline', () async {
+      final p = _FailingProvider(
+        _dioError(DioExceptionType.badResponse, statusCode: 503),
+      );
+      await engineWith(p).syncAccount(acc);
+
+      final updated = (await accounts.allAccounts()).first;
+      expect(updated.status, AccountStatus.syncError);
     });
 
     test('прочая ошибка → статус syncError (не offline)', () async {

@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-09-02
+
+### Fixed
+- Android release builds now declare the `INTERNET` permission in the main
+  manifest. This restores Office 365 and all other network calendar sync in
+  GitHub-built APKs; debug/profile builds were not affected.
+- Connection timeouts, server refusals, and TLS failures are no longer
+  mislabeled as a device-wide lack of network. The Accounts screen now shows
+  the stored error detail for an unhealthy account.
+
 ## [0.3.2] — 2026-09-02
 
 ### Added
