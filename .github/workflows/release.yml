@@ -14,8 +14,16 @@ env:
   FLUTTER_VERSION: 3.44.1
 
 jobs:
+  identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify application identity
+        run: bash tools/verify_application_identity.sh
+
   # ─────────────────────────── Linux ────────────────────────────
   linux:
+    needs: identity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +48,7 @@ jobs:
 
   # ────────────────────────── Windows ───────────────────────────
   windows:
+    needs: identity
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +67,7 @@ jobs:
 
   # ─────────────────────────── macOS ────────────────────────────
   macos:
+    needs: identity
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +77,11 @@ jobs:
       # он же патчит entitlements (сеть, Keychain, sandbox off) под нашу схему.
       - run: bash tools/setup_macos.sh
       - run: flutter build macos --release
+      - name: Verify macOS bundle identity
+        run: |
+          actual="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            build/macos/Build/Products/Release/calenfi.app/Contents/Info.plist)"
+          test "$actual" = 'ru.apsolutions.calenfi'
       - name: Package
         run: |
           cd build/macos/Build/Products/Release
@@ -76,6 +91,7 @@ jobs:
 
   # ────────────────────────── Android ───────────────────────────
   android:
+    needs: identity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,12 +104,15 @@ jobs:
       # split-per-abi: отдельный APK на каждую архитектуру (меньше размер).
       # Подпись — debug-ключом (для release-подписи добавьте keystore в secrets).
       - run: flutter build apk --release --split-per-abi
-      - name: Verify release network permission
+      - name: Verify release identity and network permission
         run: |
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -1)"
           test -n "$AAPT"
           for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
-            "$AAPT" dump permissions "$apk" | grep -Fq "name='android.permission.INTERNET'"
+            badging="$("$AAPT" dump badging "$apk")"
+            permissions="$("$AAPT" dump permissions "$apk")"
+            grep -Fq "package: name='ru.apsolutions.calenfi'" <<<"$badging"
+            grep -Fq "name='android.permission.INTERNET'" <<<"$permissions"
           done
       - name: Rename APKs
         run: |

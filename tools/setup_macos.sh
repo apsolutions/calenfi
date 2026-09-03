@@ -18,7 +18,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."   # корень проекта
 ORG="ru.apsolutions"
-BUNDLE_ID="ru.apsolutions.calenfi"   # совпадает с PRODUCT_BUNDLE_IDENTIFIER, который ставит flutter create
+BUNDLE_ID="ru.apsolutions.calenfi"
 
 # --- 0. Проверки окружения ---------------------------------------------------
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -37,6 +37,31 @@ else
   echo "==> Генерирую папку macos/ ..."
   flutter create --platforms=macos --org "$ORG" .
 fi
+
+# `flutter create --org` задаёт id только при первичной генерации. Закрепляем
+# его и для уже существующего Xcode-проекта, чтобы старый bundle id не мог
+# пережить перенос репозитория.
+APP_INFO="macos/Runner/Configs/AppInfo.xcconfig"
+[[ -f "$APP_INFO" ]] || {
+  echo "ОШИБКА: не найден $APP_INFO" >&2
+  exit 1
+}
+APP_INFO_TMP="$(mktemp "${TMPDIR:-/tmp}/calenfi-app-info.XXXXXX")"
+trap 'rm -f -- "$APP_INFO_TMP"' EXIT
+awk -v identity="PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID" '
+  BEGIN { found = 0 }
+  /^PRODUCT_BUNDLE_IDENTIFIER[[:space:]]*=/ {
+    if (!found) print identity
+    found = 1
+    next
+  }
+  { print }
+  END { if (!found) print identity }
+' "$APP_INFO" >"$APP_INFO_TMP"
+chmod 644 "$APP_INFO_TMP"
+mv -f "$APP_INFO_TMP" "$APP_INFO"
+trap - EXIT
+grep -Fqx "PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID" "$APP_INFO"
 
 # --- 2. Патч entitlements -----------------------------------------------------
 PB=/usr/libexec/PlistBuddy

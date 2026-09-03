@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Verify application identity
+        run: bash tools/verify_application_identity.sh
+
       - name: Codegen (Drift)
         run: dart run build_runner build --delete-conflicting-outputs
 

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Telemost OAuth connection.
 
 ### Fixed
+- CI and release builds now fail before publication unless every native runner
+  uses the canonical `ru.apsolutions.calenfi` identity; Android APK manifests
+  are verified again after compilation.
 - Linux and Windows now discover healthy databases and account state in
   retired application/vendor support directories without relying on embedded
   historical identifiers. Discovery is limited to the known support-directory
