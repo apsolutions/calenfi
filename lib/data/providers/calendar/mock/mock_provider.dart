@@ -76,7 +76,12 @@ class MockProvider implements CalendarProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e) async {
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
     final list = _store[e.calendarId];
     if (list != null) {
       final i = list.indexWhere((x) => x.id == e.id);

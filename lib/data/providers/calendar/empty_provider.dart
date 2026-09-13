@@ -40,8 +40,12 @@ class EmptyProvider implements CalendarProvider {
   Future<CalendarEvent> createEvent(Account a, Calendar c, CalendarEvent e) async =>
       throw UnsupportedError('аккаунт не подключён');
   @override
-  Future<CalendarEvent> updateEvent(Account a, CalendarEvent e) async =>
-      throw UnsupportedError('аккаунт не подключён');
+  Future<CalendarEvent> updateEvent(
+    Account a,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async => throw UnsupportedError('аккаунт не подключён');
   @override
   Future<void> deleteEvent(Account a, CalendarEvent e, RecurrenceScope s) async =>
       throw UnsupportedError('аккаунт не подключён');

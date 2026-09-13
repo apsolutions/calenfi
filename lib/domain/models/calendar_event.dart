@@ -180,6 +180,39 @@ class CalendarEvent {
         webUrl: webUrl,
       );
 
+  /// Копия правки, адресованная МАСТЕРУ серии: снимает привязку к вхождению
+  /// ([recurrenceId]) и ставит время самой серии. Нужна адаптерам, которые
+  /// применяют правку экземпляра ко всем вхождениям — copyWith этого не умеет,
+  /// он специально сохраняет recurrenceId.
+  CalendarEvent asSeriesMaster({
+    required DateTime startUtc,
+    required DateTime endUtc,
+    String? recurrenceRule,
+  }) => CalendarEvent(
+    id: id,
+    calendarId: calendarId,
+    title: title,
+    startUtc: startUtc,
+    endUtc: endUtc,
+    timeZoneId: timeZoneId,
+    allDay: allDay,
+    location: location,
+    description: description,
+    recurrenceRule: recurrenceRule ?? this.recurrenceRule,
+    attendees: attendees,
+    myResponse: myResponse,
+    showAs: showAs,
+    visibility: visibility,
+    reminders: reminders,
+    conference: conference,
+    source: source,
+    status: status,
+    deletedRemotely: deletedRemotely,
+    colorOverride: colorOverride,
+    mergedGroupId: mergedGroupId,
+    webUrl: webUrl,
+  );
+
   bool get isCancelled => status == EventStatus.cancelled || deletedRemotely;
 
   bool get isInvitePending => myResponse == ResponseStatus.needsAction;

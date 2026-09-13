@@ -1,0 +1,33 @@
+name: macOS preview
+
+# Сборка .app с виджетами для проверки на живой машине (без тега и релиза).
+# Запуск: вкладка Actions → macOS preview → Run workflow, либо пуш ветки
+# `preview/*` — так сборку можно прогнать ещё до вливания в main.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['preview/**']
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.44.1', channel: stable, cache: true }
+      - run: bash tools/setup_macos.sh
+      - run: flutter build macos --release
+      - name: Verify widget extension is embedded
+        run: |
+          app=build/macos/Build/Products/Release/calenfi.app
+          appex="$app/Contents/PlugIns/CalenfiWidgets.appex"
+          test -d "$appex"
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' \
+            "$appex/Contents/Info.plist" | grep -Fx 'com.apple.widgetkit-extension'
+          codesign -dv "$appex" 2>&1 | head -5
+      - name: Package
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -ry "$GITHUB_WORKSPACE/calenfi-preview-macos.zip" calenfi.app
+      - uses: actions/upload-artifact@v4
+        with: { name: macos-preview, path: calenfi-preview-macos.zip }

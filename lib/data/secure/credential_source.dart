@@ -1,3 +1,4 @@
+import 'build_credentials.dart';
 import 'secret_store.dart';
 
 /// Источник секретов (паролей приложений, ключей API) поверх системного keyring.
@@ -19,9 +20,20 @@ class CredentialSource {
 
   final Map<String, String> _values;
 
-  /// Снимок секретов из keyring-кеша.
-  static CredentialSource load() =>
-      CredentialSource._(Map.of(SecretStore.instance.all));
+  /// OAuth-клиенты, зашитые в сборку (см. [BuildCredentials]). Поле, чтобы
+  /// тесты могли подставить свои значения.
+  static Map<String, String> buildDefaults = BuildCredentials.values;
+
+  /// Снимок секретов из keyring-кеша поверх значений сборки: непустой ключ в
+  /// keyring (свой OAuth-клиент пользователя) важнее зашитого.
+  static CredentialSource load() => CredentialSource._({
+        ...buildDefaults,
+        for (final e in SecretStore.instance.all.entries)
+          if (e.value.isNotEmpty) e.key: e.value,
+      });
+
+  /// Значение произвольного ключа (null, если нет или пусто).
+  String? value(String key) => _nonEmpty(_values[key]);
 
   /// Нормализованный префикс переменных для e-mail (ВЕРХНИЙ регистр,
   /// не-алфанум → '_'). Совпадает с `tools/extract_contacts.py`.

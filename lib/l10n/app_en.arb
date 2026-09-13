@@ -62,6 +62,25 @@
   },
   "accNewPassword": "New password",
   "accNoCalendars": "No calendars",
+  "accOAuthNotConfiguredTitle": "{name} sign-in is not set up",
+  "@accOAuthNotConfiguredTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "accOAuthNotConfiguredBody": "This Calenfi build has no OAuth client for {name}, so the browser sign-in cannot start. Enter the client of your OAuth app (redirect URI http://localhost); it is kept in this device's secure storage.",
+  "@accOAuthNotConfiguredBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "accOAuthClientId": "Client ID",
+  "accOAuthClientSecret": "Client secret",
+  "accSaveAndSignIn": "Save and sign in",
   "accPassword": "Password",
   "accPasswordSaved": "Password saved, syncing…",
   "accPort": "Port",
@@ -170,6 +189,8 @@
   "detOptional": "optional",
   "detOrganizer": "organizer",
   "detRecurringWhatDelete": "Recurring event — what to delete?",
+  "detRecurringWhatEdit": "Recurring event — what to change?",
+  "detEditWholeSeries": "Entire series (every occurrence)",
   "detResponseAccepted": "Accepted",
   "detResponseDeclined": "Declined",
   "detResponseNeedsAction": "Awaiting response",

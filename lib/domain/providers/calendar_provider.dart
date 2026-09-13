@@ -73,7 +73,21 @@ abstract class CalendarProvider {
 
   // --- запись (CRUD) ---
   Future<CalendarEvent> createEvent(Account acc, Calendar cal, CalendarEvent e);
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e);
+
+  /// Правка события. Для экземпляра повторяющейся серии [scope] решает, куда
+  /// уходит изменение: в один экземпляр (исключение серии) или в мастер, то
+  /// есть во все вхождения сразу.
+  ///
+  /// [originalStartUtc] — начало экземпляра ДО правки. По нему адаптер
+  /// вычисляет сдвиг для мастера: перенос одного вхождения на 15 минут должен
+  /// сдвинуть всю серию на 15 минут, а не переставить её на дату этого
+  /// вхождения. Для [RecurrenceScope.thisOnly] не нужен.
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  });
   Future<void> deleteEvent(Account acc, CalendarEvent e, RecurrenceScope scope);
 
   // --- приглашения ---

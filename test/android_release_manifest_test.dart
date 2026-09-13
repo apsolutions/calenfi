@@ -16,4 +16,18 @@ void main() {
           'included in GitHub release APKs.',
     );
   });
+
+  test('Android release manifest can see a browser for OAuth sign-in', () {
+    final source =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    final queries = RegExp(r'<queries>([\s\S]*?)</queries>')
+        .firstMatch(source)
+        ?.group(1);
+
+    expect(queries, isNotNull);
+    expect(queries, contains('android.intent.action.VIEW'));
+    expect(queries, contains('android:scheme="https"'),
+        reason: 'Since Android 11 the sign-in page may not find a browser '
+            'without a package-visibility query for https links.');
+  });
 }

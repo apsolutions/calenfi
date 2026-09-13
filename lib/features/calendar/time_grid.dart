@@ -10,6 +10,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/calendar_event.dart';
+import '../../domain/models/enums.dart';
 import '../../domain/models/merged_event.dart';
 import '../../l10n/app_localizations.dart';
 import '../event_editor/event_editor_screen.dart';
@@ -18,6 +19,7 @@ import 'calendar_state.dart'
 import 'event_block.dart';
 import 'event_details_sheet.dart';
 import 'pending_edits.dart';
+import 'recurrence_scope_dialog.dart';
 import 'week_view.dart' show eventsForDay;
 
 const double kHourHeight = 72; // крупнее: получасовые события читаемы (30мин=36px)
@@ -457,6 +459,14 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
     final delay = ref.read(commitDelayProvider);
     final pending = ref.read(pendingEditsProvider.notifier);
 
+    /// Повторяющееся событие: спрашиваем, правим вхождение или всю серию.
+    /// null — пользователь отменил, превью убираем и ничего не отправляем.
+    Future<RecurrenceScope?> askScope() async {
+      if (!e.isRecurring) return RecurrenceScope.thisOnly;
+      if (!mounted) return null;
+      return askRecurrenceEditScope(context);
+    }
+
     if (drag.mode == _DragMode.move) {
       final dayDelta = (drag.dx / colW).round();
       final minDelta = _snapPxToMinutes(drag.dy);
@@ -468,13 +478,16 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
       final newEnd = newStart.add(duration);
       final updated =
           e.copyWith(startUtc: newStart.toUtc(), endUtc: newEnd.toUtc());
+      final scope = await askScope();
+      if (scope == null) return;
       if (delay > Duration.zero) {
-        await pending.stage(updated, delay, original: e);
+        await pending.stage(updated, delay, original: e, scope: scope);
       } else {
         // Мгновенный режим — обязательное подтверждение переноса (FR-E3).
+        // У повторяющегося события эту роль уже сыграл выбор области.
         if (!mounted) return;
-        if (await _confirmMove(e.title, newStart, newEnd)) {
-          await pending.stage(updated, Duration.zero, original: e);
+        if (e.isRecurring || await _confirmMove(e.title, newStart, newEnd)) {
+          await pending.stage(updated, Duration.zero, original: e, scope: scope);
         }
       }
     } else if (drag.mode == _DragMode.resizeTop) {
@@ -486,8 +499,10 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
       }
       setState(() => _drag = null);
       if (newStart != start) {
+        final scope = await askScope();
+        if (scope == null) return;
         await pending.stage(e.copyWith(startUtc: newStart.toUtc()), delay,
-            original: e);
+            original: e, scope: scope);
       }
     } else {
       final minDelta = _snapPxToMinutes(drag.dy);
@@ -497,8 +512,10 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
       }
       setState(() => _drag = null);
       if (newEnd != end) {
+        final scope = await askScope();
+        if (scope == null) return;
         await pending.stage(e.copyWith(endUtc: newEnd.toUtc()), delay,
-            original: e);
+            original: e, scope: scope);
       }
     }
   }

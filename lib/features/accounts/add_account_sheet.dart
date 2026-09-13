@@ -13,70 +13,208 @@ Future<void> openAddAccount(BuildContext context) {
   );
 }
 
-class AddAccountScreen extends ConsumerWidget {
+class AddAccountScreen extends ConsumerStatefulWidget {
   const AddAccountScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AddAccountScreen> createState() => _AddAccountScreenState();
+}
+
+class _AddAccountScreenState extends ConsumerState<AddAccountScreen> {
+  /// Вход, который сейчас ждёт браузер: второй не запускаем, плитки неактивны.
+  OAuthApp? _signingIn;
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = L10n.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.accConnectAccount)),
       body: ListView(
         children: [
+          if (_signingIn != null) const LinearProgressIndicator(),
           _SectionHeader(l10n.accSectionCalendars),
-          _tile(Icons.event, 'Google', l10n.accSignInBrowser,
-              () => _oauth(context, ref, 'Google',
-                  () => ref.read(connectAccountServiceProvider).connectGoogle())),
-          _tile(Icons.business, 'Microsoft 365 / Outlook', l10n.accSignInBrowser,
-              () => _oauth(context, ref, 'Microsoft',
-                  () => ref.read(connectAccountServiceProvider).connectMicrosoft())),
+          _oauthTile(Icons.event, 'Google', OAuthApp.google,
+              (svc) => svc.connectGoogle()),
+          _oauthTile(Icons.business, 'Microsoft 365 / Outlook',
+              OAuthApp.microsoft, (svc) => svc.connectMicrosoft()),
           _tile(Icons.cloud_outlined, 'Yandex (CalDAV)', l10n.accAppPassword,
               () => _openForm(context, _ProviderKind.caldav)),
           _tile(Icons.dns_outlined, 'Exchange (EWS)', l10n.accLoginPassword,
               () => _openForm(context, _ProviderKind.ews)),
           const Divider(height: 32),
           _SectionHeader(l10n.accSectionVideoMeetings),
-          _tile(Icons.videocam_outlined, 'Yandex Telemost', l10n.accSignInBrowser,
-              () => _oauth(context, ref, 'Telemost',
-                  () => ref
-                      .read(connectAccountServiceProvider)
-                      .connectTelemost()
-                      .then((_) => 'Telemost'))),
+          _oauthTile(Icons.videocam_outlined, 'Yandex Telemost',
+              OAuthApp.telemost,
+              (svc) => svc.connectTelemost().then((_) => 'Telemost')),
         ],
       ),
     );
   }
 
-  Widget _tile(IconData icon, String title, String sub, VoidCallback onTap) =>
+  Widget _tile(IconData icon, String title, String sub, VoidCallback? onTap,
+          {Widget? trailing}) =>
       ListTile(
         leading: CircleAvatar(child: Icon(icon, size: 18)),
         title: Text(title),
         subtitle: Text(sub),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: trailing ?? const Icon(Icons.chevron_right),
+        enabled: onTap != null,
         onTap: onTap,
       );
 
+  Widget _oauthTile(IconData icon, String title, OAuthApp app,
+      Future<String> Function(ConnectAccountService svc) connect) {
+    return _tile(
+      icon,
+      title,
+      L10n.of(context).accSignInBrowser,
+      _signingIn == null ? () => _oauth(app, connect) : null,
+      trailing: _signingIn == app
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2))
+          : null,
+    );
+  }
+
+  static String _appName(OAuthApp app) => switch (app) {
+        OAuthApp.google => 'Google',
+        OAuthApp.microsoft => 'Microsoft',
+        OAuthApp.telemost => 'Telemost',
+      };
+
   /// OAuth-провайдеры (Google/Microsoft/Telemost): открываем браузер, ждём вход.
-  Future<void> _oauth(BuildContext context, WidgetRef ref, String name,
-      Future<String> Function() connect) async {
+  Future<void> _oauth(OAuthApp app,
+      Future<String> Function(ConnectAccountService svc) connect) async {
+    if (_signingIn != null) return;
     final l10n = L10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
+    final svc = ref.read(connectAccountServiceProvider);
+    final name = _appName(app);
+
+    // Без OAuth-клиента браузер не откроется. Раньше экран всё равно писал
+    // «завершите вход в открывшемся браузере…», и вход выглядел зависшим.
+    if (svc.missingOAuthClientKeys(app).isNotEmpty) {
+      final saved = await _askOAuthClient(svc, app, name);
+      if (!saved || !mounted) return;
+    }
+
+    setState(() => _signingIn = app);
+    messenger.hideCurrentSnackBar();
     messenger.showSnackBar(SnackBar(
         content: Text(l10n.accCompleteSignIn(name)),
         duration: const Duration(seconds: 10)));
     try {
-      final who = await connect();
+      final who = await connect(svc);
+      // Снекбары становятся в очередь: без hide результат ждал бы, пока
+      // «завершите вход…» отвисит свои 10 секунд, и вход выглядел бы зависшим.
+      messenger.hideCurrentSnackBar();
       messenger.showSnackBar(SnackBar(content: Text(l10n.accConnected(who))));
+      if (mounted) setState(() => _signingIn = null);
       if (nav.canPop()) nav.pop();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(l10n.accFailed(e.toString()))));
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(
+          content: Text(l10n.accFailed(e.toString())),
+          duration: const Duration(seconds: 12)));
+      if (mounted) setState(() => _signingIn = null);
     }
+  }
+
+  /// Диалог «вход не настроен в этой сборке» с вводом своего OAuth-клиента.
+  /// true — клиент сохранён в keyring, можно начинать вход.
+  Future<bool> _askOAuthClient(
+      ConnectAccountService svc, OAuthApp app, String name) async {
+    final withSecret = ConnectAccountService.oauthClientKeys(app).length > 1;
+    final client = await showDialog<({String id, String secret})>(
+      context: context,
+      builder: (_) => _OAuthClientDialog(name: name, withSecret: withSecret),
+    );
+    if (client == null) return false;
+    await svc.saveOAuthClient(app,
+        clientId: client.id, clientSecret: withSecret ? client.secret : null);
+    return true;
   }
 
   Future<void> _openForm(BuildContext context, _ProviderKind kind) {
     return Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => _CredentialFormScreen(kind: kind)),
+    );
+  }
+}
+
+/// Ввод своего OAuth-клиента. Контроллеры живут вместе с диалогом: анимация
+/// закрытия ещё перестраивает поля, освобождать их раньше нельзя.
+class _OAuthClientDialog extends StatefulWidget {
+  const _OAuthClientDialog({required this.name, required this.withSecret});
+  final String name;
+  final bool withSecret;
+
+  @override
+  State<_OAuthClientDialog> createState() => _OAuthClientDialogState();
+}
+
+class _OAuthClientDialogState extends State<_OAuthClientDialog> {
+  final _id = TextEditingController();
+  final _secret = TextEditingController();
+
+  @override
+  void dispose() {
+    _id.dispose();
+    _secret.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    return AlertDialog(
+      title: Text(l10n.accOAuthNotConfiguredTitle(widget.name)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l10n.accOAuthNotConfiguredBody(widget.name)),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('oauth-client-id'),
+              controller: _id,
+              decoration: InputDecoration(labelText: l10n.accOAuthClientId),
+            ),
+            if (widget.withSecret)
+              TextField(
+                key: const ValueKey('oauth-client-secret'),
+                controller: _secret,
+                obscureText: true,
+                decoration:
+                    InputDecoration(labelText: l10n.accOAuthClientSecret),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.accCancel),
+        ),
+        ListenableBuilder(
+          listenable: Listenable.merge([_id, _secret]),
+          builder: (context, _) {
+            final ready = _id.text.trim().isNotEmpty &&
+                (!widget.withSecret || _secret.text.trim().isNotEmpty);
+            return FilledButton(
+              onPressed: ready
+                  ? () => Navigator.of(context)
+                      .pop((id: _id.text, secret: _secret.text))
+                  : null,
+              child: Text(l10n.accSaveAndSignIn),
+            );
+          },
+        ),
+      ],
     );
   }
 }

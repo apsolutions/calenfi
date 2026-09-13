@@ -200,6 +200,7 @@ class SyncEngine {
         // 4) подчистить «призраков» — UUID-копии, не удалённые после создания,
         // у которых уже есть серверный двойник (иначе дубль в UI).
         await events.cleanupGhostDuplicates();
+        await events.cleanupOrphanSeriesMasters();
 
         if (pushError != null) {
           await accounts.recordSyncFailure(
@@ -422,10 +423,28 @@ class SyncEngine {
               } else {
                 await events.putLocalDirty(saved);
               }
+              // Создали СЕРИЮ: провайдер вернул мастера, а читать мы будем
+              // развёрнутые вхождения. Оставить мастера локально нельзя —
+              // он повиснет в сетке лишней встречей рядом с первым вхождением
+              // (и перетаскивание попадёт по нему, сдвинув всю серию). Строку
+              // помечаем чистой: pull ниже принесёт вхождения, а сверка окна
+              // уберёт мастера в той же транзакции.
+              if (saved.recurrenceRule != null && saved.recurrenceId == null) {
+                await events.putLocalClean(saved);
+              }
             }
           case 'update':
             if (event != null && event.source.accountId == acc.id) {
-              final updated = await provider.updateEvent(acc, event);
+              // Область правки повторяющегося события выбирает пользователь;
+              // origStart — время вхождения ДО правки, по нему адаптер сдвигает
+              // серию ровно на дельту, а не переставляет её на дату вхождения.
+              final scope = _readScope(item.payloadJson);
+              final updated = await provider.updateEvent(
+                acc,
+                event,
+                scope: scope,
+                originalStartUtc: _readEpochUtc(item.payloadJson, 'origStart'),
+              );
               // Адаптер может канонизировать локальный id (например,
               // CalDAV legacy `account:calendar:`-префиксы). Переносим
               // dirty-строку на новый ключ, чтобы pull очистил её, а
@@ -438,6 +457,14 @@ class SyncEngine {
                 // ETag/changeKey. Следующий update/delete из уже загруженной
                 // цепочки обязан увидеть его, иначе отправит stale If-Match.
                 await events.putLocalDirty(updated);
+              }
+              // Сдвинули СЕРИЮ — у вхождений меняются времена, а с ними и
+              // локальные id (`<master>_<время>` у Google, uid + RECURRENCE-ID
+              // у CalDAV). Отправленная строка адресует старое вхождение,
+              // которого больше нет: оставь её dirty — и она навсегда зависнет
+              // рядом с новым временем. Помечаем чистой, сверка окна уберёт.
+              if (scope != RecurrenceScope.thisOnly) {
+                await events.putLocalClean(updated);
               }
             }
           case 'delete':
@@ -483,6 +510,23 @@ class SyncEngine {
       }
     }
     return failure;
+  }
+
+  /// Область правки/удаления из задания Outbox (по умолчанию — одно вхождение:
+  /// так безопаснее, случайная правка не заденет всю серию).
+  static RecurrenceScope _readScope(String json) {
+    final idx = int.tryParse(_readInt(json, 'scope'));
+    return (idx != null && idx >= 0 && idx < RecurrenceScope.values.length)
+        ? RecurrenceScope.values[idx]
+        : RecurrenceScope.thisOnly;
+  }
+
+  static DateTime? _readEpochUtc(String json, String key) {
+    final m = RegExp('"$key"\\s*:\\s*(\\d+)').firstMatch(json);
+    final ms = m == null ? null : int.tryParse(m.group(1)!);
+    return ms == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
   }
 
   static String _readInt(String json, String key) {

@@ -52,7 +52,12 @@ class _FailingProvider implements CalendarProvider {
     CalendarEvent e,
   ) async => throw error;
   @override
-  Future<CalendarEvent> updateEvent(Account a, CalendarEvent e) async =>
+  Future<CalendarEvent> updateEvent(
+    Account a,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async =>
       throw error;
   @override
   Future<void> deleteEvent(

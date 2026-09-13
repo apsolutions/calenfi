@@ -96,5 +96,13 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Вход через браузер (OAuth): страница входа открывается внешним
+             браузером. С Android 11 без объявленной видимости приложение может
+             не найти браузер, и вход не начинается. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

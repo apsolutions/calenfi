@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../../app/providers.dart';
+import '../../data/secure/data_dir.dart';
 import '../../domain/models/calendar_event.dart';
 import '../../domain/models/enums.dart';
 import '../../domain/models/merged_event.dart';
@@ -26,6 +28,15 @@ const _kUpdatedEpoch = 'agenda_updated_epoch_ms';
 @visibleForTesting
 const agendaWidgetFutureCacheDays = 366;
 
+/// Файл снимка для WidgetKit-расширения macOS (`macos_widget/`). Лежит в
+/// конфиг-каталоге: `home_widget` под macOS не работает, а расширение собрано
+/// без песочницы и читает файл напрямую.
+const _kMacosSnapshotFile = 'widget_snapshot.json';
+
+/// Сколько дней повестки кладём в macOS-снимок. Виджет рисует текущий день, но
+/// после полуночи (и до следующего пуша из приложения) ему нужен завтрашний.
+const _kMacosAgendaDays = 3;
+
 /// Сервис домашнего виджета «agenda на сегодня» (Android App Widget).
 ///
 /// Flutter не рисует в системный виджет напрямую: мы кладём снимок повестки в
@@ -37,13 +48,23 @@ class AgendaWidgetService {
   static bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  static bool get _macos =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+
+  /// Работаем ли на платформе с WidgetKit-снимком (macOS).
+  static bool get macosSnapshotPlatform => _macos;
+
   /// Сериализует повестку дня и просит систему перерисовать виджет.
   static Future<void> push({
     required List<MergedEvent> events,
     required Map<String, int> calendarColors,
     required DateTime now,
   }) async {
-    if (!_supported) return; // на desktop плагина нет — тихо выходим
+    if (_macos) {
+      await _writeMacosSnapshot(_buildItems(events, calendarColors), now);
+      return;
+    }
+    if (!_supported) return; // на прочих desktop плагина нет — тихо выходим
     final items = _buildItems(events, calendarColors);
     await HomeWidget.saveWidgetData<String>(_kJson, jsonEncode(items));
     await HomeWidget.saveWidgetData<String>(_kDate, _formatDate(now));
@@ -87,6 +108,102 @@ class AgendaWidgetService {
         },
     ];
   }
+
+  /// Пишет снимок для WidgetKit-расширения атомарно (tmp + rename): виджет
+  /// читает файл в произвольный момент и не должен увидеть половину JSON.
+  static Future<void> _writeMacosSnapshot(
+    List<Map<String, dynamic>> items,
+    DateTime now,
+  ) async {
+    try {
+      final dir = Directory(configDir());
+      if (!dir.existsSync()) await dir.create(recursive: true);
+      final target = File('${dir.path}/$_kMacosSnapshotFile');
+      final tmp = File('${target.path}.tmp');
+      await tmp.writeAsString(
+        jsonEncode(buildMacosSnapshot(items, now)),
+        flush: true,
+      );
+      await tmp.rename(target.path);
+    } on Object catch (e) {
+      // Виджет — вспомогательная витрина: недоступный каталог не должен
+      // ронять синхронизацию календаря.
+      debugPrint('calenfi: снимок виджета не записан: $e');
+    }
+  }
+
+  /// Payload macOS-снимка: повестка на ближайшие дни + число событий по дням
+  /// (мини-календарь рисует по ним точки и листает месяцы без запуска Flutter).
+  @visibleForTesting
+  static Map<String, dynamic> buildMacosSnapshot(
+    List<Map<String, dynamic>> items,
+    DateTime now,
+  ) {
+    final today = DateTime(now.year, now.month, now.day);
+    final horizon = today.add(const Duration(days: _kMacosAgendaDays));
+    final agenda = <Map<String, dynamic>>[];
+    final counts = <String, int>{};
+    for (final item in items) {
+      if (item['cancelled'] == true) continue;
+      final days = _localDays(item);
+      for (final day in days) {
+        counts.update(_dayKey(day), (v) => v + 1, ifAbsent: () => 1);
+      }
+      if (days.any((d) => !d.isBefore(today) && d.isBefore(horizon))) {
+        agenda.add(item);
+      }
+    }
+    return {
+      'schema': 1,
+      'updated_epoch_ms': now.millisecondsSinceEpoch,
+      'agenda_days': _kMacosAgendaDays,
+      'events': agenda,
+      'day_counts': counts,
+    };
+  }
+
+  /// Локальные календарные дни, которые занимает событие. All-day хранится
+  /// плавающими датами (UTC-полночь), остальное — моментами времени.
+  static List<DateTime> _localDays(Map<String, dynamic> item) {
+    DateTime first;
+    DateTime last; // включительно
+    if (item['all_day'] == true) {
+      final start = DateTime.tryParse((item['start_date'] as String?) ?? '');
+      final end = DateTime.tryParse((item['end_date'] as String?) ?? '');
+      if (start == null) return const [];
+      first = DateTime(start.year, start.month, start.day);
+      // Конец all-day — эксклюзивная дата: 5→6 сентября это один день.
+      final endExclusive = end == null
+          ? first.add(const Duration(days: 1))
+          : DateTime(end.year, end.month, end.day);
+      last = endExclusive.isAfter(first)
+          ? endExclusive.subtract(const Duration(days: 1))
+          : first;
+    } else {
+      final startMs = (item['start_ms'] as num?)?.toInt();
+      final endMs = (item['end_ms'] as num?)?.toInt();
+      if (startMs == null) return const [];
+      final start = DateTime.fromMillisecondsSinceEpoch(startMs);
+      final end = DateTime.fromMillisecondsSinceEpoch(endMs ?? startMs);
+      first = DateTime(start.year, start.month, start.day);
+      final endDay = DateTime(end.year, end.month, end.day);
+      // Встреча до ровной полуночи принадлежит предыдущему дню.
+      last = (endDay.isAfter(first) && end.isAtSameMomentAs(endDay))
+          ? endDay.subtract(const Duration(days: 1))
+          : (endDay.isAfter(first) ? endDay : first);
+    }
+    final days = <DateTime>[];
+    for (var d = first; !d.isAfter(last); d = d.add(const Duration(days: 1))) {
+      days.add(d);
+      if (days.length >= 400) break; // защита от битых дат
+    }
+    return days;
+  }
+
+  static String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   static String _sub(CalendarEvent e) {
     final parts = <String>[];
@@ -133,7 +250,13 @@ List<Map<String, dynamic>> buildAgendaWidgetItemsForTest(
 /// Нативный widget выбирает из него только текущий локальный день.
 final _agendaSnapshotRangeProvider = Provider<DateRange>((ref) {
   final n = DateTime.now();
-  final start = DateTime(n.year, n.month, n.day - 1);
+  // Мини-календарь macOS листает месяцы и назад, поэтому там нужен год
+  // прошлого; Android-виджету хватает вчерашнего буфера под смену timezone.
+  final start = DateTime(
+    n.year,
+    n.month,
+    n.day - (AgendaWidgetService.macosSnapshotPlatform ? 366 : 1),
+  );
   final end = DateTime(
     n.year,
     n.month,

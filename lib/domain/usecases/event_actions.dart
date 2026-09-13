@@ -25,9 +25,20 @@ class EventActions {
     _kickSync(e);
   }
 
-  Future<void> update(CalendarEvent e) async {
+  /// Правка события. Для вхождения повторяющейся серии [scope] решает, куда
+  /// уйдёт изменение, а [original] (состояние ДО правки) даёт адаптеру время
+  /// вхождения, по которому считается сдвиг серии.
+  Future<void> update(
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    CalendarEvent? original,
+  }) async {
     await _events.putLocalDirty(e);
-    await _events.enqueue('update', e.id);
+    await _events.enqueue('update', e.id, {
+      'scope': scope.index,
+      if (original != null)
+        'origStart': original.startUtc.toUtc().millisecondsSinceEpoch,
+    });
     _kickSync(e);
   }
 

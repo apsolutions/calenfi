@@ -545,7 +545,12 @@ class CalDavProvider implements CalendarProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e) async {
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
     final cal = _calOf(e);
     final uid = _uidOf(acc, cal, e);
     final href = _resourceHref(cal, e, uid);
@@ -562,7 +567,15 @@ class CalDavProvider implements CalendarProvider {
         Uri.parse(_url(href)),
         options: _requestOptions('GET'),
       );
-      body = _mergeRecurringUpdate(acc, cal, existing.data.toString(), e, uid);
+      body = _mergeRecurringUpdate(
+        acc,
+        cal,
+        existing.data.toString(),
+        e,
+        uid,
+        scope: scope,
+        originalStartUtc: originalStartUtc,
+      );
       etag = existing.headers.value('etag')?.trim() ?? etag;
     }
 
@@ -594,8 +607,10 @@ class CalDavProvider implements CalendarProvider {
     Calendar cal,
     String ics,
     CalendarEvent updated,
-    String canonicalUid,
-  ) {
+    String canonicalUid, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) {
     final components = _rawVEvents(ics);
     final family = components
         .where(
@@ -606,6 +621,47 @@ class CalDavProvider implements CalendarProvider {
     if (family.isEmpty) {
       throw FormatException(
         'CalDAV update: ресурс не содержит UID $canonicalUid',
+      );
+    }
+
+    // Правка «на всю серию»: адресуем мастер и сдвигаем его DTSTART на ту же
+    // дельту, что получило вхождение. RRULE берём из мастера — у экземпляра
+    // его нет, а _mergeVEventFields перезаписывает это свойство.
+    if (scope != RecurrenceScope.thisOnly && updated.recurrenceId != null) {
+      final master = family.firstWhereOrNull(
+        (component) =>
+            component.event.recurrenceIdUtc == null &&
+            component.event.rrule != null,
+      );
+      if (master == null) {
+        throw const FormatException(
+          'CalDAV update: мастер повторяющейся серии не найден',
+        );
+      }
+      final millis = int.tryParse(updated.recurrenceId!);
+      final origStart =
+          originalStartUtc?.toUtc() ??
+          (millis == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true));
+      final shift = origStart == null
+          ? Duration.zero
+          : updated.startUtc.toUtc().difference(origStart);
+      final masterStart = master.event.startUtc.add(shift);
+      final seriesUpdate = updated.asSeriesMaster(
+        startUtc: masterStart,
+        endUtc: masterStart.add(updated.endUtc.difference(updated.startUtc)),
+        recurrenceRule: master.event.rrule,
+      );
+      final replacement = _mergeVEventFields(
+        master.match.group(0)!,
+        seriesUpdate,
+        master.event.uid,
+      );
+      return ics.replaceRange(
+        master.match.start,
+        master.match.end,
+        replacement,
       );
     }
 

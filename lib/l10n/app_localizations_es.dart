@@ -102,6 +102,25 @@ class L10nEs extends L10n {
   String get accNoCalendars => 'Sin calendarios';
 
   @override
+  String accOAuthNotConfiguredTitle(String name) {
+    return 'El inicio de sesión de $name no está configurado';
+  }
+
+  @override
+  String accOAuthNotConfiguredBody(String name) {
+    return 'Esta versión de Calenfi no incluye un cliente OAuth de $name, así que no se puede iniciar sesión en el navegador. Introduce el cliente de tu aplicación OAuth (URI de redirección http://localhost); se guardará en el almacenamiento seguro del dispositivo.';
+  }
+
+  @override
+  String get accOAuthClientId => 'ID de cliente';
+
+  @override
+  String get accOAuthClientSecret => 'Secreto de cliente';
+
+  @override
+  String get accSaveAndSignIn => 'Guardar e iniciar sesión';
+
+  @override
   String get accPassword => 'Contraseña';
 
   @override
@@ -304,6 +323,12 @@ class L10nEs extends L10n {
 
   @override
   String get detRecurringWhatDelete => 'Evento periódico: ¿qué eliminar?';
+
+  @override
+  String get detRecurringWhatEdit => 'Evento periódico: ¿qué cambiar?';
+
+  @override
+  String get detEditWholeSeries => 'Toda la serie (todas las repeticiones)';
 
   @override
   String get detResponseAccepted => 'Aceptado';

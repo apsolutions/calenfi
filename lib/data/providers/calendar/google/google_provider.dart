@@ -131,14 +131,121 @@ class GoogleProvider implements CalendarProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e) async {
-    final id = e.source.providerEventId;
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
+    final calId = Uri.encodeComponent(e.calendarId.split('|').last);
+    final instanceId = e.source.providerEventId;
+    final masterId = e.recurrenceId;
+    // Вся серия: правку надо адресовать мастеру. PATCH по instance-id Google
+    // всегда трактует как исключение одного вхождения.
+    if (scope != RecurrenceScope.thisOnly &&
+        masterId != null &&
+        masterId != instanceId) {
+      return _updateSeries(
+        acc,
+        e,
+        calId: calId,
+        masterId: masterId,
+        instanceId: instanceId,
+        originalStartUtc: originalStartUtc,
+      );
+    }
     await _dio.patch(
-      '$_base/calendars/${Uri.encodeComponent(e.calendarId.split('|').last)}/events/$id',
+      '$_base/calendars/$calId/events/$instanceId',
       data: _toGoogle(e),
       options: await _opts(contentType: Headers.jsonContentType),
     );
     return e;
+  }
+
+  /// Переносит правку экземпляра на мастер серии: время сдвигаем на ту же
+  /// дельту, что и у вхождения, остальные поля копируем как есть. RRULE не
+  /// трогаем — правило серии остаётся серверным.
+  Future<CalendarEvent> _updateSeries(
+    Account acc,
+    CalendarEvent e, {
+    required String calId,
+    required String masterId,
+    required String? instanceId,
+    required DateTime? originalStartUtc,
+  }) async {
+    final resp = await _dio.get(
+      '$_base/calendars/$calId/events/$masterId',
+      options: await _opts(),
+    );
+    final master = (resp.data as Map).cast<String, dynamic>();
+    final masterStart = _parseGTime(master['start']);
+    final masterEnd = _parseGTime(master['end']);
+    if (masterStart == null || masterEnd == null) {
+      throw StateError('Google update: у серии $masterId нет времени начала');
+    }
+
+    final origStart =
+        originalStartUtc?.toUtc() ?? _instanceStartFromId(instanceId);
+    final shift = origStart == null
+        ? Duration.zero
+        : e.startUtc.toUtc().difference(origStart);
+    final duration = e.endUtc.difference(e.startUtc);
+    final newStart = masterStart.add(shift);
+
+    // Поля берём из правки, время — сдвинутое от мастера. RRULE не шлём:
+    // правило серии остаётся тем, что лежит на сервере.
+    final payload = _toGoogle(e)
+      ..remove('recurrence')
+      ..['start'] = _gTime(newStart, allDay: e.allDay)
+      ..['end'] = _gTime(newStart.add(duration), allDay: e.allDay);
+
+    // Список участников у вхождения и у серии может расходиться (исключение
+    // серии умеет иметь свой). Одинаковый состав не отправляем: Google
+    // рассылает приглашения по факту записи поля, а переносу времени такая
+    // рассылка не нужна.
+    if (_sameAttendees(master['attendees'], e)) payload.remove('attendees');
+
+    await _dio.patch(
+      '$_base/calendars/$calId/events/$masterId',
+      data: payload,
+      options: await _opts(contentType: Headers.jsonContentType),
+    );
+    return e;
+  }
+
+  /// Совпадает ли состав участников правки с тем, что уже стоит у серии.
+  static bool _sameAttendees(dynamic remote, CalendarEvent e) {
+    final remoteEmails = <String>{
+      for (final a in (remote as List? ?? const []))
+        ((a as Map)['email'] ?? '').toString().toLowerCase(),
+    }..remove('');
+    final localEmails = <String>{
+      for (final a in e.attendees) a.email.toLowerCase(),
+    }..remove('');
+    return remoteEmails.length == localEmails.length &&
+        remoteEmails.containsAll(localEmails);
+  }
+
+  /// Начало вхождения, зашитое в id экземпляра (`<master>_20260913T110000Z`
+  /// у обычных событий, `<master>_20260913` у событий на весь день). Это
+  /// исходное время вхождения, поэтому дельту сдвига можно вычислить без сети.
+  static DateTime? _instanceStartFromId(String? instanceId) {
+    if (instanceId == null) return null;
+    final underscore = instanceId.lastIndexOf('_');
+    if (underscore < 0) return null;
+    final stamp = instanceId.substring(underscore + 1);
+    final m = RegExp(r'^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?$')
+        .firstMatch(stamp);
+    if (m == null) return null;
+    int g(int i) => int.parse(m.group(i)!);
+    return DateTime.utc(
+      g(1),
+      g(2),
+      g(3),
+      m.group(4) == null ? 0 : g(4),
+      m.group(5) == null ? 0 : g(5),
+      m.group(6) == null ? 0 : g(6),
+    );
   }
 
   @override
@@ -291,10 +398,14 @@ class GoogleProvider implements CalendarProvider {
     );
   }
 
+  /// Время в формате Google: у событий на весь день — календарная дата.
+  static Map<String, dynamic> _gTime(DateTime d, {required bool allDay}) =>
+      allDay
+      ? {'date': d.toUtc().toIso8601String().substring(0, 10)}
+      : {'dateTime': d.toUtc().toIso8601String(), 'timeZone': 'UTC'};
+
   Map<String, dynamic> _toGoogle(CalendarEvent e, {bool withMeet = false}) {
-    Map<String, dynamic> time(DateTime d) => e.allDay
-        ? {'date': d.toUtc().toIso8601String().substring(0, 10)}
-        : {'dateTime': d.toUtc().toIso8601String(), 'timeZone': 'UTC'};
+    Map<String, dynamic> time(DateTime d) => _gTime(d, allDay: e.allDay);
     // Кросс-аккаунтная конференция (готовая ссылка) встраивается в описание,
     // чтобы была видна и переразбиралась; нативный Meet — только через withMeet.
     final description = descriptionWithConference(e.description, e.conference);

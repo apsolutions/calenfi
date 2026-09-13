@@ -63,6 +63,31 @@ class EventRepository {
     );
   }
 
+  /// Удаляет локальных «мастеров» повторяющихся серий, оставшихся после
+  /// создания серии.
+  ///
+  /// Провайдер на create возвращает МАСТЕР (id без суффикса вхождения), но
+  /// отдаёт при чтении только развёрнутые вхождения: Google — `singleEvents`,
+  /// Graph/EWS — calendarView, CalDAV разворачиваем мы сами. Такая строка
+  /// остаётся `dirty`, переживает reconcile и рисуется в сетке как ещё одна
+  /// встреча рядом с первым вхождением; хуже того, перетаскивание попадает
+  /// именно по ней и правит СЕРИЮ вместо вхождения.
+  ///
+  /// Признак призрака — не сам факт RRULE (у такой строки он часто пуст), а
+  /// наличие в базе вхождений, ссылающихся на её provider-id. Записи с живым
+  /// заданием Outbox не трогаем: их правка ещё не доехала.
+  Future<int> cleanupOrphanSeriesMasters() {
+    return _db.customUpdate(
+      'DELETE FROM events WHERE dirty = 1 AND recurrence_id IS NULL '
+      'AND provider_event_id IS NOT NULL '
+      "AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.event_id = events.id) "
+      'AND EXISTS ('
+      'SELECT 1 FROM events i WHERE i.account_id = events.account_id '
+      'AND i.recurrence_id = events.provider_event_id AND i.id <> events.id)',
+      updates: {_db.events},
+    );
+  }
+
   /// Поиск событий по названию, участнику (email/имя внутри attendees_json) или
   /// id. Возвращает до [limit] совпадений; сортировку (дата/релевантность) делает
   /// UI. Wildcard-символы из запроса вычищаем, чтобы `%`/`_` не ломали LIKE.

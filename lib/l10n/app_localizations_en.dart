@@ -102,6 +102,25 @@ class L10nEn extends L10n {
   String get accNoCalendars => 'No calendars';
 
   @override
+  String accOAuthNotConfiguredTitle(String name) {
+    return '$name sign-in is not set up';
+  }
+
+  @override
+  String accOAuthNotConfiguredBody(String name) {
+    return 'This Calenfi build has no OAuth client for $name, so the browser sign-in cannot start. Enter the client of your OAuth app (redirect URI http://localhost); it is kept in this device\'s secure storage.';
+  }
+
+  @override
+  String get accOAuthClientId => 'Client ID';
+
+  @override
+  String get accOAuthClientSecret => 'Client secret';
+
+  @override
+  String get accSaveAndSignIn => 'Save and sign in';
+
+  @override
   String get accPassword => 'Password';
 
   @override
@@ -303,6 +322,12 @@ class L10nEn extends L10n {
 
   @override
   String get detRecurringWhatDelete => 'Recurring event — what to delete?';
+
+  @override
+  String get detRecurringWhatEdit => 'Recurring event — what to change?';
+
+  @override
+  String get detEditWholeSeries => 'Entire series (every occurrence)';
 
   @override
   String get detResponseAccepted => 'Accepted';

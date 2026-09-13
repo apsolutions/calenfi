@@ -123,10 +123,69 @@ class GraphProvider implements CalendarProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e) async {
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
     final id = e.source.providerEventId;
+    final seriesId = e.recurrenceId; // seriesMasterId у экземпляров серии
+    // Вся серия: PATCH по id вхождения Graph превращает его в исключение,
+    // поэтому правку адресуем мастеру и сдвигаем его время на ту же дельту.
+    if (scope != RecurrenceScope.thisOnly &&
+        seriesId != null &&
+        seriesId != id) {
+      return _updateSeries(e, seriesId: seriesId, originalStartUtc: originalStartUtc);
+    }
     await _dio.patch('$_base/me/events/$id',
         data: _toGraph(e),
+        options: await _opts(contentType: Headers.jsonContentType));
+    return e;
+  }
+
+  /// Переносит правку вхождения на мастер серии: время — со сдвигом, остальные
+  /// поля как есть. patternedRecurrence не трогаем (правило остаётся серверным).
+  Future<CalendarEvent> _updateSeries(
+    CalendarEvent e, {
+    required String seriesId,
+    required DateTime? originalStartUtc,
+  }) async {
+    final resp = await _dio.get('$_base/me/events/$seriesId',
+        options: await _opts());
+    final master = (resp.data as Map).cast<String, dynamic>();
+    final masterStart = _parseGraphTime(master['start']);
+    if (masterStart == null) {
+      throw StateError('Graph update: у серии $seriesId нет времени начала');
+    }
+    final shift = originalStartUtc == null
+        ? Duration.zero
+        : e.startUtc.toUtc().difference(originalStartUtc.toUtc());
+    final newStart = masterStart.add(shift);
+    final newEnd = newStart.add(e.endUtc.difference(e.startUtc));
+    Map<String, dynamic> t(DateTime d) =>
+        {'dateTime': d.toUtc().toIso8601String(), 'timeZone': 'UTC'};
+    final payload = _toGraph(e)
+      ..remove('recurrence')
+      ..['start'] = t(newStart)
+      ..['end'] = t(newEnd);
+    // Тот же состав участников не переотправляем: Graph на запись поля шлёт
+    // обновлённые приглашения, а переносу времени это ни к чему.
+    final remoteEmails = <String>{
+      for (final a in (master['attendees'] as List? ?? const []))
+        (((a as Map)['emailAddress'] as Map?)?['address'] ?? '')
+            .toString()
+            .toLowerCase(),
+    }..remove('');
+    final localEmails = <String>{
+      for (final a in e.attendees) a.email.toLowerCase(),
+    }..remove('');
+    if (remoteEmails.length == localEmails.length &&
+        remoteEmails.containsAll(localEmails)) {
+      payload.remove('attendees');
+    }
+    await _dio.patch('$_base/me/events/$seriesId',
+        data: payload,
         options: await _opts(contentType: Headers.jsonContentType));
     return e;
   }

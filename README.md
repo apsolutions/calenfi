@@ -24,8 +24,9 @@ on-device, editable offline.
 - **Conferences** — attach real Teams / Meet / Zoom / Telemost meetings,
   independent of which calendar hosts the event.
 - **Per-calendar overrides** — visibility, colour and default reminders.
-- **Reminders & widget** — local notifications and a home-screen agenda widget
-  on Android.
+- **Reminders & widgets** — local notifications, a home-screen agenda widget on
+  Android, and two WidgetKit widgets on macOS: today's agenda and a translucent
+  mini month calendar you can page through right in the widget.
 - **Agent CLI** — a JSON interface (`tools/calenfi`) to read and edit your
   schedule from scripts or LLM agents (see [docs/AGENT_API.md](docs/AGENT_API.md)).
 
@@ -53,14 +54,18 @@ Open **Accounts → Add account** and pick a provider:
 
 - **Google / Microsoft 365** — sign in through your browser (OAuth 2.0
   authorization-code + PKCE, loopback redirect; works on desktop and mobile).
-  Requires an OAuth client to be configured — see below.
+  Release builds from GitHub ship with the project's OAuth clients; builds
+  without them ask for a client — see below.
 - **Yandex (CalDAV) / Exchange (EWS)** — enter your e-mail and an **app
   password** (not your main password).
 
 ### OAuth client configuration
 
-Google/Microsoft sign-in needs your own OAuth client id (the app ships without
-one). Store the values in the keyring via the CLI:
+Google/Microsoft sign-in needs an OAuth client. GitHub releases embed one at
+build time (see [Build from source](#build-from-source)). A build without it
+opens a dialog on **Add account** where you can enter your own client; it is
+saved to the keyring of that device. A client in the keyring always wins over
+the embedded one. You can also store the values via the CLI:
 
 ```bash
 # Google (OAuth client of type "Desktop")
@@ -71,6 +76,25 @@ tools/calenfi secret-set --key GOOGLE_OAUTH_CLIENT_SECRET --value "…"
 tools/calenfi secret-set --key GRAPH_CLIENT_ID --value "…"
 tools/calenfi secret-set --key GRAPH_TENANT    --value "common"
 ```
+
+On a machine without the CLI (for example a plain macOS release, which ships no
+Dart toolchain) drop the same `KEY=value` pairs into `secrets.env` inside the
+config directory instead — `~/Library/Application Support/calenfi` on macOS,
+`~/.config/calenfi` on Linux, `%APPDATA%\calenfi` on Windows. The app imports the
+file into the OS keyring on the next start.
+
+### macOS widgets
+
+The release `.app` embeds `CalenfiWidgets.appex`: **Calenfi — сегодня** (agenda
+for the current day) and **Calenfi — календарь** (month grid with `‹` / `›`
+paging; tapping the month name jumps back to today). Add them the usual way —
+right-click the desktop → Edit Widgets → Calenfi — after launching the app once
+from `/Applications` so the system registers the extension.
+
+The widgets never talk to the network: the app writes a snapshot to
+`~/Library/Application Support/calenfi/widget_snapshot.json` whenever the local
+database changes, and the extension renders it. Keep the app running (or open it
+periodically) for the snapshot to stay fresh.
 
 ### Video conferences (optional)
 
@@ -123,6 +147,23 @@ flutter run -d linux        # or: -d macos / -d windows / <android-device-id>
 `macos/` and `ios/` are generated on the build host (Flutter cannot create the
 macOS platform on Linux). On a Mac, run `tools/setup_macos.sh` once, then
 `flutter build macos`.
+
+To embed OAuth clients into a build, export them under the same names as the
+keyring keys (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GRAPH_CLIENT_ID`, `GRAPH_TENANT`, `YANDEX_OAUTH_CLIENT_ID`,
+`YANDEX_OAUTH_CLIENT_SECRET`) and pass them through `tools/oauth_dart_defines.sh`:
+
+```bash
+bash tools/oauth_dart_defines.sh --require > oauth-defines
+defines=(); while IFS= read -r d; do defines+=("$d"); done < oauth-defines
+flutter build apk --release --split-per-abi "${defines[@]}"
+```
+
+Only OAuth application identifiers go into the binary: a Google "Desktop" client
+secret is not confidential by Google's definition, and a Microsoft public client
+has no secret. User passwords, refresh tokens and Zoom keys are never embedded.
+The release workflow reads these values from repository secrets and refuses to
+publish a release without the Google and Microsoft clients.
 
 ## Project layout
 

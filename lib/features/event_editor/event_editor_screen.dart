@@ -16,6 +16,7 @@ import '../../l10n/app_localizations.dart';
 import '../accounts/add_account_sheet.dart';
 import '../calendar/calendar_state.dart';
 import '../calendar/pending_edits.dart';
+import '../calendar/recurrence_scope_dialog.dart';
 import 'conference_options.dart';
 import 'recurrence_editor.dart';
 
@@ -870,7 +871,22 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     if (_isNew) {
       await pending.stage(event.withId(const Uuid().v4()), delay, op: 'create');
     } else {
-      await pending.stage(event, delay, op: 'update', original: existing);
+      // Повторяющееся событие: правка вхождения и правка серии — разные
+      // операции у провайдера, выбор делает пользователь (см. диалог).
+      var scope = RecurrenceScope.thisOnly;
+      if (existing != null && existing.isRecurring) {
+        if (!mounted) return;
+        final chosen = await askRecurrenceEditScope(context);
+        if (chosen == null) return; // передумал — не отправляем ничего
+        scope = chosen;
+      }
+      await pending.stage(
+        event,
+        delay,
+        op: 'update',
+        original: existing,
+        scope: scope,
+      );
     }
     if (mounted) Navigator.pop(context);
   }

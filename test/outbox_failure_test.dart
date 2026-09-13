@@ -20,7 +20,12 @@ import 'package:flutter_test/flutter_test.dart';
 class _WriteFailsProvider extends MockProvider {
   _WriteFailsProvider(super.accountId);
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent e) async =>
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async =>
       throw UnsupportedError('запись не поддержана');
 }
 

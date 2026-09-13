@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] — 2026-09-13
+
+### Added
+- Release builds embed the OAuth clients for Google, Microsoft and Telemost at
+  build time (`tools/oauth_dart_defines.sh` → `--dart-define`, values from
+  repository secrets). The release workflow stops before building if the Google
+  or Microsoft client is missing and checks that the client ids made it into
+  the Android and Linux binaries.
+- A build without an OAuth client now says so on **Add account** and lets you
+  enter your own client, which is stored in the device keyring.
+
+- macOS gets two WidgetKit widgets embedded in the app bundle: **Calenfi —
+  сегодня** (agenda for the current day) and **Calenfi — календарь** (a
+  translucent month grid that pages through months inside the widget itself,
+  with a dot on every day that has events). The app writes a snapshot to
+  `widget_snapshot.json` in the config directory; the extension reads it, so the
+  widgets work offline and without network access of their own.
+
+- Editing an occurrence of a recurring event now asks what to change — this
+  occurrence or the whole series — for drag, resize and the editor alike. The
+  choice travels to the provider: Google/Graph patch either the occurrence or
+  the series master, CalDAV rewrites either the RECURRENCE-ID exception or the
+  master. A series is shifted by the same delta as the occurrence, so moving one
+  meeting 15 minutes later no longer moves the series onto that date.
+
+### Fixed
+- Creating a recurring series no longer leaves a ghost event. Providers answer
+  `create` with the series master while reading returns expanded occurrences, so
+  the master used to stay behind as a second meeting next to the first
+  occurrence — and dragging it silently rescheduled every occurrence. Existing
+  ghosts are removed on the next sync.
+- The Android APK from GitHub could not add a Google or Microsoft account: it
+  showed "complete sign-in in the browser that opened…", but no browser opened
+  because the release carried no OAuth client. Sign-in results and errors now
+  appear immediately instead of queueing behind that ten-second hint, a second
+  sign-in cannot start while one is waiting for the browser, and the Android
+  manifest declares visibility of https browsers for Android 11+.
+
 ## [0.3.4] — 2026-09-03
 
 ### Added

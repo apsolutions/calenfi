@@ -8,9 +8,9 @@
 #
 # Что делает:
 #   1. Генерирует macos/ (валидный Xcode-проект) через `flutter create`.
-#   2. Патчит entitlements: исходящая сеть (календарные API) + Keychain
-#      (нужно для flutter_secure_storage под app-sandbox).
-#   3. Ставит зависимости.
+#   2. Патчит entitlements: исходящая сеть (календарные API).
+#   3. Добавляет таргет WidgetKit-виджетов (macos_widget/).
+#   4. Ставит зависимости.
 #
 # После этого:  flutter run -d macos
 #
@@ -74,10 +74,22 @@ patch_entitlements () {
   "$PB" -c "Delete :com.apple.security.network.client" "$f" 2>/dev/null || true
   "$PB" -c "Add :com.apple.security.network.client bool true" "$f"
 
-  # Доступ к Keychain для flutter_secure_storage под app-sandbox.
+  # App Sandbox у САМОГО приложения выключен намеренно. В песочнице HOME
+  # подменяется контейнером: приложение перестаёт видеть ~/Library/Application
+  # Support/calenfi (accounts.json, secrets.env, снимок для виджетов), а
+  # SecretStore не может запустить утилиту `security` для Keychain. Шаблон
+  # flutter create ставит sandbox = true, поэтому гасим его явно — иначе после
+  # пересоздания macos/ приложение молча теряет все учётные записи.
+  # Расширение виджетов, наоборот, ОБЯЗАНО быть в песочнице (иначе macOS его
+  # не регистрирует) — у него свой CalenfiWidgets.entitlements.
+  "$PB" -c "Delete :com.apple.security.app-sandbox" "$f" 2>/dev/null || true
+  "$PB" -c "Add :com.apple.security.app-sandbox bool false" "$f"
+
+  # keychain-access-groups намеренно НЕ добавляем: Xcode 26 отказывается
+  # подписывать такой бандл ad-hoc («requires signing with a development
+  # certificate»), а на macOS секреты и так идут через утилиту `security`
+  # (MacKeychainBackend), а не через flutter_secure_storage.
   "$PB" -c "Delete :keychain-access-groups" "$f" 2>/dev/null || true
-  "$PB" -c "Add :keychain-access-groups array" "$f"
-  "$PB" -c "Add :keychain-access-groups:0 string \$(AppIdentifierPrefix)${BUNDLE_ID}" "$f"
 }
 patch_entitlements macos/Runner/DebugProfile.entitlements
 patch_entitlements macos/Runner/Release.entitlements
@@ -91,6 +103,17 @@ if [[ -d "$ICONSET" && -d "$(dirname "$DEST")" ]]; then
   rm -f "$DEST"/*.png
   cp "$ICONSET"/*.png "$ICONSET"/Contents.json "$DEST"/
 fi
+
+# --- 2c. WidgetKit-расширение (виджеты «сегодня» и мини-календарь) -----------
+# Таргет расширения нельзя закоммитить вместе с macos/ (её тут нет), поэтому он
+# добавляется в сгенерированный Xcode-проект скриптом. Исходники — macos_widget/.
+echo "==> Добавляю таргет виджетов CalenfiWidgets"
+if ! ruby -e "require 'xcodeproj'" >/dev/null 2>&1; then
+  echo "   ставлю гем xcodeproj"
+  gem install xcodeproj --no-document >/dev/null 2>&1 ||
+    sudo gem install xcodeproj --no-document
+fi
+ruby tools/macos_add_widget_target.rb
 
 # --- 3. Зависимости + кодоген -------------------------------------------------
 echo "==> flutter pub get"

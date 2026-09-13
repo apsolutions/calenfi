@@ -196,7 +196,15 @@ ${_attendeesXml(attendees)}
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account a, CalendarEvent e) async {
+  Future<CalendarEvent> updateEvent(
+    Account a,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
+    // Серии Exchange правятся вхождение за вхождением: fetchEvents отдаёт
+    // occurrences без признака серии, поэтому мастера у нас нет и scope
+    // применить не к чему (UI для таких событий выбор и не показывает).
     final id = e.source.providerEventId;
     if (id == null) throw StateError('EWS update: нет ItemId');
     String set(String field, String ns, String inner) =>

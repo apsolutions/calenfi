@@ -17,12 +17,71 @@ import '../../data/secure/secret_store.dart';
 import '../../domain/models/account.dart';
 import '../../domain/models/enums.dart';
 
+/// OAuth-приложения, через которые аккаунт подключается входом в браузере.
+enum OAuthApp { google, microsoft, telemost }
+
+/// Для [app] нет OAuth-клиента ни в сборке, ни в keyring: браузер открыть
+/// нечем. UI ловит это до подсказки «завершите вход в браузере».
+class OAuthNotConfiguredException extends OAuthException {
+  OAuthNotConfiguredException(this.app, this.missingKeys)
+      : super('OAuth-клиент ${app.name} не настроен: нет '
+            '${missingKeys.join(', ')}');
+  final OAuthApp app;
+  final List<String> missingKeys;
+}
+
 /// Подключение реальных учётных записей из приложения: OAuth (Google/Microsoft)
 /// и парольные провайдеры (Yandex CalDAV / Exchange EWS). Сохраняет секреты в
 /// keyring, метаданные — в `accounts.json`, заводит аккаунт в БД и синкает.
 class ConnectAccountService {
-  ConnectAccountService(this.ref);
+  /// [launcher] открывает страницу входа; по умолчанию внешний браузер
+  /// (тесты подставляют свой).
+  ConnectAccountService(this.ref, {Future<bool> Function(Uri url)? launcher})
+      : _launcher = launcher ?? _launchExternal;
   final Ref ref;
+  final Future<bool> Function(Uri url) _launcher;
+
+  static Future<bool> _launchExternal(Uri url) =>
+      launchUrl(url, mode: LaunchMode.externalApplication);
+
+  /// Ключи OAuth-клиента [app]; первый — client id, второй (если есть) — секрет.
+  static List<String> oauthClientKeys(OAuthApp app) => switch (app) {
+        OAuthApp.google => const [
+            'GOOGLE_OAUTH_CLIENT_ID',
+            'GOOGLE_OAUTH_CLIENT_SECRET',
+          ],
+        OAuthApp.microsoft => const ['GRAPH_CLIENT_ID'],
+        OAuthApp.telemost => const [
+            'YANDEX_OAUTH_CLIENT_ID',
+            'YANDEX_OAUTH_CLIENT_SECRET',
+          ],
+      };
+
+  /// Каких ключей OAuth-клиента не хватает для входа через [app]. Пустой
+  /// список — можно открывать браузер.
+  List<String> missingOAuthClientKeys(OAuthApp app) {
+    final creds = CredentialSource.load();
+    return [
+      for (final key in oauthClientKeys(app))
+        if (creds.value(key) == null) key,
+    ];
+  }
+
+  /// Сохранить OAuth-клиент, введённый пользователем: сборка без зашитых
+  /// клиентов или свой клиент вместо встроенного.
+  Future<void> saveOAuthClient(OAuthApp app,
+      {required String clientId, String? clientSecret}) async {
+    final keys = oauthClientKeys(app);
+    await SecretStore.instance.write(keys.first, clientId.trim());
+    if (keys.length > 1 && clientSecret != null) {
+      await SecretStore.instance.write(keys[1], clientSecret.trim());
+    }
+  }
+
+  void _requireOAuthClient(OAuthApp app) {
+    final missing = missingOAuthClientKeys(app);
+    if (missing.isNotEmpty) throw OAuthNotConfiguredException(app, missing);
+  }
 
   static const _googleAuth = 'https://accounts.google.com/o/oauth2/v2/auth';
   static const _googleToken = 'https://oauth2.googleapis.com/token';
@@ -41,22 +100,22 @@ class ConnectAccountService {
   ];
 
   Future<void> _openBrowser(Uri url) async {
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      throw OAuthException('не удалось открыть браузер для входа');
+    final bool opened;
+    try {
+      opened = await _launcher(url);
+    } catch (e) {
+      throw OAuthException('не удалось открыть браузер для входа: $e');
     }
+    if (!opened) throw OAuthException('не удалось открыть браузер для входа');
   }
 
   /// Подключить Google-аккаунт: OAuth → сохранить refresh-токен в keyring →
   /// завести аккаунт. Возвращает адрес подключённого ящика.
   Future<String> connectGoogle() async {
+    _requireOAuthClient(OAuthApp.google);
     final creds = CredentialSource.load();
-    final clientId = creds.googleClientId;
-    final clientSecret = creds.googleClientSecret;
-    if (clientId == null || clientSecret == null) {
-      throw OAuthException(
-          'Google OAuth не настроен: задайте GOOGLE_OAUTH_CLIENT_ID и '
-          'GOOGLE_OAUTH_CLIENT_SECRET (Google Cloud → OAuth client, тип Desktop).');
-    }
+    final clientId = creds.googleClientId!;
+    final clientSecret = creds.googleClientSecret!;
     final dio = Dio();
     final res = await OAuthFlow(dio: dio).run(
       authorizationEndpoint: _googleAuth,
@@ -92,14 +151,9 @@ class ConnectAccountService {
   /// Подключить Microsoft 365 / Outlook: OAuth (public client, PKCE) →
   /// сохранить refresh-токен → завести аккаунт.
   Future<String> connectMicrosoft() async {
+    _requireOAuthClient(OAuthApp.microsoft);
     final creds = CredentialSource.load();
-    final clientId = creds.graphClientId;
-    if (clientId == null) {
-      throw OAuthException(
-          'Microsoft OAuth не настроен: задайте GRAPH_CLIENT_ID (Azure → '
-          'регистрация приложения, платформа «Mobile and desktop», redirect '
-          'http://localhost).');
-    }
+    final clientId = creds.graphClientId!;
     final tenant = creds.graphTenant;
     final base = 'https://login.microsoftonline.com/$tenant/oauth2/v2.0';
     final dio = Dio();
@@ -135,15 +189,10 @@ class ConnectAccountService {
   /// зарегистрированного Yandex-приложения (YANDEX_OAUTH_CLIENT_ID/SECRET,
   /// redirect http://localhost).
   Future<void> connectTelemost() async {
+    _requireOAuthClient(OAuthApp.telemost);
     final creds = CredentialSource.load();
-    final clientId = creds.yandexClientId;
-    final clientSecret = creds.yandexClientSecret;
-    if (clientId == null || clientSecret == null) {
-      throw OAuthException(
-          'Telemost OAuth не настроен: задайте YANDEX_OAUTH_CLIENT_ID и '
-          'YANDEX_OAUTH_CLIENT_SECRET (oauth.yandex.ru, приложение с доступом '
-          '«Telemost API», redirect http://localhost).');
-    }
+    final clientId = creds.yandexClientId!;
+    final clientSecret = creds.yandexClientSecret!;
     final res = await OAuthFlow().run(
       authorizationEndpoint: 'https://oauth.yandex.ru/authorize',
       tokenEndpoint: 'https://oauth.yandex.ru/token',

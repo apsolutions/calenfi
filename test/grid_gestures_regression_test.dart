@@ -9,6 +9,7 @@
 // Наблюдаемый эффект переноса/ресайза: _commitDrag стейджит правку через
 // pendingEditsProvider.notifier.stage(...) — подменяем нотификатор фейком,
 // который записывает вызовы stage().
+import 'package:calenfi/domain/models/enums.dart';
 import 'package:calenfi/data/repositories/event_repository.dart';
 import 'package:calenfi/domain/models/calendar_event.dart';
 import 'package:calenfi/domain/models/merged_event.dart';
@@ -53,11 +54,15 @@ class _RecordingPendingEdits extends PendingEditsNotifier {
   _RecordingPendingEdits() : super(_FakeEventRepository(), _FakeSyncEngine());
 
   final staged = <CalendarEvent>[];
+  final stagedScopes = <RecurrenceScope>[];
 
   @override
   Future<void> stage(CalendarEvent updated, Duration delay,
-      {String op = 'update', CalendarEvent? original}) async {
+      {String op = 'update',
+      CalendarEvent? original,
+      RecurrenceScope scope = RecurrenceScope.thisOnly}) async {
     staged.add(updated);
+    stagedScopes.add(scope);
   }
 }
 

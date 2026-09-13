@@ -34,7 +34,12 @@ class _CanonicalizingProvider extends MockProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent event) async {
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent event, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
     updatedIds.add(event.id);
     updatedEtags.add(event.source.etag);
     final etag = 'etag-${++_etagRevision}';

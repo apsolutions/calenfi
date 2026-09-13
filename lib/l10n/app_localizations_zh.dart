@@ -100,6 +100,25 @@ class L10nZh extends L10n {
   String get accNoCalendars => '无日历';
 
   @override
+  String accOAuthNotConfiguredTitle(String name) {
+    return '尚未配置 $name 登录';
+  }
+
+  @override
+  String accOAuthNotConfiguredBody(String name) {
+    return '此 Calenfi 版本不含 $name 的 OAuth 客户端，因此无法在浏览器中开始登录。请输入你自己的 OAuth 应用客户端（重定向 URI 为 http://localhost），它将保存在本设备的安全存储中。';
+  }
+
+  @override
+  String get accOAuthClientId => '客户端 ID';
+
+  @override
+  String get accOAuthClientSecret => '客户端密钥';
+
+  @override
+  String get accSaveAndSignIn => '保存并登录';
+
+  @override
   String get accPassword => '密码';
 
   @override
@@ -299,6 +318,12 @@ class L10nZh extends L10n {
 
   @override
   String get detRecurringWhatDelete => '重复事件 — 要删除什么？';
+
+  @override
+  String get detRecurringWhatEdit => '重复事件——要修改什么？';
+
+  @override
+  String get detEditWholeSeries => '整个系列（所有重复项）';
 
   @override
   String get detResponseAccepted => '已接受';

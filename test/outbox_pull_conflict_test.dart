@@ -59,7 +59,12 @@ class _ConflictProvider extends MockProvider {
   }
 
   @override
-  Future<CalendarEvent> updateEvent(Account acc, CalendarEvent event) async {
+  Future<CalendarEvent> updateEvent(
+    Account acc,
+    CalendarEvent event, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
     receivedEtags.add(event.source.etag);
     if (failNextUpdate) {
       failNextUpdate = false;

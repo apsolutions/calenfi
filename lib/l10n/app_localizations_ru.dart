@@ -102,6 +102,25 @@ class L10nRu extends L10n {
   String get accNoCalendars => 'Нет календарей';
 
   @override
+  String accOAuthNotConfiguredTitle(String name) {
+    return 'Вход в $name не настроен';
+  }
+
+  @override
+  String accOAuthNotConfiguredBody(String name) {
+    return 'В этой сборке Calenfi нет OAuth-клиента $name, поэтому вход через браузер не может начаться. Введите данные своего OAuth-приложения (redirect URI http://localhost), они сохранятся в защищённом хранилище устройства.';
+  }
+
+  @override
+  String get accOAuthClientId => 'Client ID';
+
+  @override
+  String get accOAuthClientSecret => 'Client secret';
+
+  @override
+  String get accSaveAndSignIn => 'Сохранить и войти';
+
+  @override
   String get accPassword => 'Пароль';
 
   @override
@@ -309,6 +328,12 @@ class L10nRu extends L10n {
 
   @override
   String get detRecurringWhatDelete => 'Повторяющееся событие — что удалить?';
+
+  @override
+  String get detRecurringWhatEdit => 'Повторяющееся событие — что изменить?';
+
+  @override
+  String get detEditWholeSeries => 'Всю серию (все вхождения)';
 
   @override
   String get detResponseAccepted => 'Принято';

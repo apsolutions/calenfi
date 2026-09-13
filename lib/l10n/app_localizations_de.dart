@@ -102,6 +102,25 @@ class L10nDe extends L10n {
   String get accNoCalendars => 'Keine Kalender';
 
   @override
+  String accOAuthNotConfiguredTitle(String name) {
+    return 'Anmeldung bei $name ist nicht eingerichtet';
+  }
+
+  @override
+  String accOAuthNotConfiguredBody(String name) {
+    return 'Dieser Calenfi-Build enthält keinen OAuth-Client für $name, daher kann die Anmeldung im Browser nicht starten. Gib den Client deiner OAuth-App ein (Weiterleitungs-URI http://localhost); er wird im sicheren Speicher des Geräts abgelegt.';
+  }
+
+  @override
+  String get accOAuthClientId => 'Client-ID';
+
+  @override
+  String get accOAuthClientSecret => 'Client-Geheimnis';
+
+  @override
+  String get accSaveAndSignIn => 'Speichern und anmelden';
+
+  @override
   String get accPassword => 'Passwort';
 
   @override
@@ -305,6 +324,12 @@ class L10nDe extends L10n {
   @override
   String get detRecurringWhatDelete =>
       'Wiederkehrendes Ereignis – was löschen?';
+
+  @override
+  String get detRecurringWhatEdit => 'Serientermin — was ändern?';
+
+  @override
+  String get detEditWholeSeries => 'Gesamte Serie (alle Termine)';
 
   @override
   String get detResponseAccepted => 'Zugesagt';

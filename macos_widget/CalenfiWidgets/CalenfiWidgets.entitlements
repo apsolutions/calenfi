@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- WidgetKit-расширения macOS регистрируются только в песочнице: без этого
+	     ключа pluginkit их не видит и виджет не появляется в галерее. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Снимок повестки лежит в конфиг-каталоге приложения. App Group был бы
+	     чище, но требует provisioning profile от Apple Developer, а Calenfi
+	     подписывается ad-hoc — поэтому точечное исключение на чтение. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/Library/Application Support/calenfi/</string>
+	</array>
+</dict>
+</plist>

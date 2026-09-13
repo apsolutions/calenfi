@@ -267,6 +267,36 @@ abstract class L10n {
   /// **'No calendars'**
   String get accNoCalendars;
 
+  /// No description provided for @accOAuthNotConfiguredTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'{name} sign-in is not set up'**
+  String accOAuthNotConfiguredTitle(String name);
+
+  /// No description provided for @accOAuthNotConfiguredBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This Calenfi build has no OAuth client for {name}, so the browser sign-in cannot start. Enter the client of your OAuth app (redirect URI http://localhost); it is kept in this device\'s secure storage.'**
+  String accOAuthNotConfiguredBody(String name);
+
+  /// No description provided for @accOAuthClientId.
+  ///
+  /// In en, this message translates to:
+  /// **'Client ID'**
+  String get accOAuthClientId;
+
+  /// No description provided for @accOAuthClientSecret.
+  ///
+  /// In en, this message translates to:
+  /// **'Client secret'**
+  String get accOAuthClientSecret;
+
+  /// No description provided for @accSaveAndSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and sign in'**
+  String get accSaveAndSignIn;
+
   /// No description provided for @accPassword.
   ///
   /// In en, this message translates to:
@@ -644,6 +674,18 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Recurring event — what to delete?'**
   String get detRecurringWhatDelete;
+
+  /// No description provided for @detRecurringWhatEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Recurring event — what to change?'**
+  String get detRecurringWhatEdit;
+
+  /// No description provided for @detEditWholeSeries.
+  ///
+  /// In en, this message translates to:
+  /// **'Entire series (every occurrence)'**
+  String get detEditWholeSeries;
 
   /// No description provided for @detResponseAccepted.
   ///
