@@ -54,18 +54,17 @@ Open **Accounts → Add account** and pick a provider:
 
 - **Google / Microsoft 365** — sign in through your browser (OAuth 2.0
   authorization-code + PKCE, loopback redirect; works on desktop and mobile).
-  Release builds from GitHub ship with the project's OAuth clients; builds
-  without them ask for a client — see below.
+  GitHub releases ship without an OAuth client and ask you for one — see below.
 - **Yandex (CalDAV) / Exchange (EWS)** — enter your e-mail and an **app
   password** (not your main password).
 
 ### OAuth client configuration
 
-Google/Microsoft sign-in needs an OAuth client. GitHub releases embed one at
-build time (see [Build from source](#build-from-source)). A build without it
-opens a dialog on **Add account** where you can enter your own client; it is
-saved to the keyring of that device. A client in the keyring always wins over
-the embedded one. You can also store the values via the CLI:
+Google/Microsoft sign-in needs an OAuth client. GitHub releases do not include
+one: on **Add account** the app opens a dialog where you enter your own client,
+and it is saved to the keyring of that device. Private builds can embed a client
+(see [Build from source](#build-from-source)); a client in the keyring always
+wins over the embedded one. You can also store the values via the CLI:
 
 ```bash
 # Google (OAuth client of type "Desktop")
@@ -162,8 +161,8 @@ flutter build apk --release --split-per-abi "${defines[@]}"
 Only OAuth application identifiers go into the binary: a Google "Desktop" client
 secret is not confidential by Google's definition, and a Microsoft public client
 has no secret. User passwords, refresh tokens and Zoom keys are never embedded.
-The release workflow reads these values from repository secrets and refuses to
-publish a release without the Google and Microsoft clients.
+Anything embedded can still be extracted from the binary, so GitHub releases are
+built without these variables.
 
 ## Project layout
 

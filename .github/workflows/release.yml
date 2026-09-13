@@ -3,6 +3,11 @@ name: Release
 # Собирает бинарники под все 4 платформы на нативных раннерах GitHub и
 # прикладывает их к GitHub Release. Триггер — тег vMAJOR.MINOR.PATCH (SemVer).
 # Токен не нужен: используется встроенный GITHUB_TOKEN.
+#
+# Публичные сборки собираются БЕЗ OAuth-клиентов: всё, что зашито в бинарник,
+# достаётся из скачанного файла. При подключении Google/Microsoft приложение
+# само просит ввести свой OAuth-клиент. Сборки со встроенными клиентами делаются
+# из приватной конфигурации сборки, не здесь.
 on:
   push:
     tags: ['v*']
@@ -12,15 +17,6 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.44.1
-  # OAuth-клиенты приложения зашиваются в сборку (tools/oauth_dart_defines.sh →
-  # --dart-define). Без них скачанная сборка не может начать вход через браузер.
-  # Только идентификаторы OAuth-приложений, не токены и не пароли пользователей.
-  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
-  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-  GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
-  GRAPH_TENANT: ${{ secrets.GRAPH_TENANT }}
-  YANDEX_OAUTH_CLIENT_ID: ${{ secrets.YANDEX_OAUTH_CLIENT_ID }}
-  YANDEX_OAUTH_CLIENT_SECRET: ${{ secrets.YANDEX_OAUTH_CLIENT_SECRET }}
 
 jobs:
   identity:
@@ -29,9 +25,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify application identity
         run: bash tools/verify_application_identity.sh
-      # Падаем до четырёх сборок, а не публикуем релиз, в котором вход не работает.
-      - name: Verify OAuth clients are configured
-        run: bash tools/oauth_dart_defines.sh --require > /dev/null
 
   # ─────────────────────────── Linux ────────────────────────────
   linux:
@@ -50,16 +43,7 @@ jobs:
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
-      - name: Build
-        run: |
-          bash tools/oauth_dart_defines.sh --require > "$RUNNER_TEMP/oauth-defines"
-          defines=(); while IFS= read -r d; do defines+=("$d"); done < "$RUNNER_TEMP/oauth-defines"
-          flutter build linux --release "${defines[@]}"
-      - name: Verify OAuth clients are embedded
-        run: |
-          so=build/linux/x64/release/bundle/lib/libapp.so
-          grep -aFq "$GOOGLE_OAUTH_CLIENT_ID" "$so"
-          grep -aFq "$GRAPH_CLIENT_ID" "$so"
+      - run: flutter build linux --release
       - name: Package
         run: |
           cd build/linux/x64/release/bundle
@@ -77,12 +61,7 @@ jobs:
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
-      - name: Build
-        shell: bash
-        run: |
-          bash tools/oauth_dart_defines.sh --require > "$RUNNER_TEMP/oauth-defines"
-          defines=(); while IFS= read -r d; do defines+=("$d"); done < "$RUNNER_TEMP/oauth-defines"
-          flutter build windows --release "${defines[@]}"
+      - run: flutter build windows --release
       - name: Package
         shell: pwsh
         run: |
@@ -102,11 +81,7 @@ jobs:
       # macos/ нет в репо (Flutter генерит её только на Mac) — создаём скриптом:
       # он же патчит entitlements (сеть, Keychain, sandbox off) под нашу схему.
       - run: bash tools/setup_macos.sh
-      - name: Build
-        run: |
-          bash tools/oauth_dart_defines.sh --require > "$RUNNER_TEMP/oauth-defines"
-          defines=(); while IFS= read -r d; do defines+=("$d"); done < "$RUNNER_TEMP/oauth-defines"
-          flutter build macos --release "${defines[@]}"
+      - run: flutter build macos --release
       - name: Verify macOS bundle identity
         run: |
           app=build/macos/Build/Products/Release/calenfi.app
@@ -140,12 +115,8 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       # split-per-abi: отдельный APK на каждую архитектуру (меньше размер).
       # Подпись — debug-ключом (для release-подписи добавьте keystore в secrets).
-      - name: Build
-        run: |
-          bash tools/oauth_dart_defines.sh --require > "$RUNNER_TEMP/oauth-defines"
-          defines=(); while IFS= read -r d; do defines+=("$d"); done < "$RUNNER_TEMP/oauth-defines"
-          flutter build apk --release --split-per-abi "${defines[@]}"
-      - name: Verify release identity, network permission and OAuth clients
+      - run: flutter build apk --release --split-per-abi
+      - name: Verify release identity and network permission
         run: |
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -1)"
           test -n "$AAPT"
@@ -154,10 +125,6 @@ jobs:
             permissions="$("$AAPT" dump permissions "$apk")"
             grep -Fq "package: name='ru.apsolutions.calenfi'" <<<"$badging"
             grep -Fq "name='android.permission.INTERNET'" <<<"$permissions"
-            # Без зашитого OAuth-клиента вход через браузер в APK не стартует.
-            unzip -p "$apk" 'lib/*/libapp.so' > "$RUNNER_TEMP/libapp.so"
-            grep -aFq "$GOOGLE_OAUTH_CLIENT_ID" "$RUNNER_TEMP/libapp.so"
-            grep -aFq "$GRAPH_CLIENT_ID" "$RUNNER_TEMP/libapp.so"
           done
       - name: Rename APKs
         run: |

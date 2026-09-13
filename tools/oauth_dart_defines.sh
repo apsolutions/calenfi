@@ -29,7 +29,7 @@ for key in "${required[@]}"; do
   fi
 done
 if (( require )) && (( ${#missing[@]} )); then
-  echo "::error::Не заданы OAuth-клиенты: ${missing[*]}. Добавьте их в секреты репозитория (Settings → Secrets and variables → Actions) или в переменные окружения сборки." >&2
+  echo "Не заданы OAuth-клиенты: ${missing[*]}. Задайте их переменными окружения сборки (приватная конфигурация, не публичный репозиторий)." >&2
   exit 1
 fi
 

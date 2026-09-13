@@ -1,8 +1,10 @@
-// Жалобы: (1) APK с GitHub не подключал Google/Microsoft, потому что релиз
-// собирался без OAuth-клиентов; (2) раньше в сборку чуть не уехали личные
-// токены. Здесь проверяется, что релиз собирается с клиентами из окружения, не
-// публикуется без них и не тянет в сборку ничего, кроме идентификаторов
-// OAuth-приложений.
+// Жалобы: (1) APK с GitHub не подключал Google/Microsoft; (2) раньше в сборку
+// чуть не уехали личные токены. Решение: публичные релизы на GitHub собираются
+// без OAuth-клиентов (приложение просит ввести свой клиент), а сборки со
+// встроенными клиентами делаются из приватной конфигурации через
+// tools/oauth_dart_defines.sh. Здесь проверяется, что скрипт пропускает в
+// сборку только идентификаторы OAuth-приложений, а публичный workflow не
+// тянет ни секреты, ни зашитые клиенты.
 
 import 'dart:io';
 
@@ -50,7 +52,7 @@ void main() {
     ]);
   }, skip: noBash);
 
-  test('--require не даёт собрать релиз без клиентов Google и Microsoft',
+  test('--require не даёт собрать сборку с клиентами, если их не хватает',
       () async {
     final missing = await _runDefines(
         {'GOOGLE_OAUTH_CLIENT_ID': 'g.apps.googleusercontent.com'},
@@ -67,39 +69,21 @@ void main() {
     expect(ok.exitCode, 0, reason: '${ok.stderr}');
   }, skip: noBash);
 
-  group('release.yml', () {
-    final workflow = File('.github/workflows/release.yml').readAsStringSync();
-
-    test('каждая платформа собирается с зашитыми OAuth-клиентами', () {
-      final builds = workflow
-          .split('\n')
-          .where((l) =>
-              l.contains('flutter build ') && !l.trimLeft().startsWith('#'))
-          .toList();
-      expect(builds, hasLength(4));
-      for (final line in builds) {
-        expect(line, contains(r'"${defines[@]}"'), reason: line.trim());
-      }
-    });
-
-    test('OAuth-клиенты приходят из секретов репозитория', () {
+  test('публичные workflow GitHub не используют OAuth-секреты и не зашивают клиенты',
+      () {
+    final workflows = Directory('.github/workflows')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.yml'));
+    expect(workflows, isNotEmpty);
+    for (final file in workflows) {
+      final source = file.readAsStringSync();
       for (final key in BuildCredentials.keys) {
-        expect(workflow, contains('$key: \${{ secrets.$key }}'));
+        expect(source, isNot(contains('secrets.$key')), reason: file.path);
       }
-    });
-
-    test('релиз падает до сборок, если клиенты не заданы', () {
-      final identity = workflow.substring(
-          workflow.indexOf('  identity:'), workflow.indexOf('  linux:'));
-      expect(identity, contains('oauth_dart_defines.sh --require'));
-    });
-
-    test('APK проверяется на зашитые клиенты', () {
-      final android = workflow.substring(workflow.indexOf('  android:'));
-      expect(android, contains('libapp.so'));
-      expect(android, contains(r'grep -aFq "$GOOGLE_OAUTH_CLIENT_ID"'));
-      expect(android, contains(r'grep -aFq "$GRAPH_CLIENT_ID"'));
-    });
+      expect(source, isNot(contains('oauth_dart_defines.sh')), reason: file.path);
+      expect(source, isNot(contains('--dart-define')), reason: file.path);
+    }
   });
 
   test('секреты и токены пользователя не попадают в сборку и в git', () {

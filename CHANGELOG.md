@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.5] — 2026-09-13
 
 ### Added
-- Release builds embed the OAuth clients for Google, Microsoft and Telemost at
-  build time (`tools/oauth_dart_defines.sh` → `--dart-define`, values from
-  repository secrets). The release workflow stops before building if the Google
-  or Microsoft client is missing and checks that the client ids made it into
-  the Android and Linux binaries.
 - A build without an OAuth client now says so on **Add account** and lets you
-  enter your own client, which is stored in the device keyring.
+  enter your own client, which is stored in the device keyring. Public GitHub
+  releases ship without OAuth clients on purpose: anything embedded in a binary
+  can be extracted from the download.
+- Private builds can embed OAuth clients at build time from environment
+  variables (`tools/oauth_dart_defines.sh` → `--dart-define`); a client stored
+  in the keyring still wins over the embedded one.
 
 - macOS gets two WidgetKit widgets embedded in the app bundle: **Calenfi —
   сегодня** (agenda for the current day) and **Calenfi — календарь** (a
@@ -39,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ghosts are removed on the next sync.
 - The Android APK from GitHub could not add a Google or Microsoft account: it
   showed "complete sign-in in the browser that opened…", but no browser opened
-  because the release carried no OAuth client. Sign-in results and errors now
+  because the release carried no OAuth client, and the error was hidden. Sign-in
+  now asks for a client up front; results and errors
   appear immediately instead of queueing behind that ten-second hint, a second
   sign-in cannot start while one is waiting for the browser, and the Android
   manifest declares visibility of https browsers for Android 11+.
