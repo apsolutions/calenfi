@@ -5,7 +5,8 @@
 //
 // Все команды печатают JSON в stdout: {"ok": true, ...} или {"ok": false, "error": ...}.
 // Записи (create/update/delete/rsvp) пишутся оптимистично в локальную БД и
-// очередь Outbox; в источники они уедут при следующей синхронизации приложения.
+// очередь Outbox; команда сразу пробует отправить СВОЁ задание (поле `pushed`),
+// а если не вышло — оно уедет при следующей синхронизации приложения или `sync`.
 //
 // Использование: dart run calenfi:calenfi <command> [--flags]
 // (или скомпилированный бинарь tools/calenfi <command> [--flags]).
@@ -21,6 +22,7 @@ import 'package:calenfi/data/providers/conference/conference_provisioner.dart';
 import 'package:calenfi/data/repositories/account_repository.dart';
 import 'package:calenfi/data/repositories/contact_repository.dart';
 import 'package:calenfi/data/repositories/event_repository.dart';
+import 'package:calenfi/domain/models/account.dart';
 import 'package:calenfi/domain/models/attendee.dart';
 import 'package:calenfi/domain/models/calendar.dart';
 import 'package:calenfi/domain/models/calendar_event.dart';
@@ -69,17 +71,13 @@ Future<void> main(List<String> argv) async {
       case 'freeslots':
         await _freeslots(events, flags);
       case 'create':
-        await _create(events, accounts, flags);
-        await _pushOutbox(events, accounts, registry);
+        await _create(events, accounts, registry, flags);
       case 'update':
-        await _update(events, flags);
-        await _pushOutbox(events, accounts, registry);
+        await _update(events, accounts, registry, flags);
       case 'delete':
-        await _delete(events, flags);
-        await _pushOutbox(events, accounts, registry);
+        await _delete(events, accounts, registry, flags);
       case 'rsvp':
-        await _rsvp(events, flags);
-        await _pushOutbox(events, accounts, registry);
+        await _rsvp(events, accounts, registry, flags);
       case 'accounts':
         await _accounts(accounts);
       case 'calendars':
@@ -240,7 +238,7 @@ Future<void> _freeslots(EventRepository repo, Map<String, String> f) async {
 }
 
 Future<void> _create(EventRepository events, AccountRepository accounts,
-    Map<String, String> f) async {
+    ProviderRegistry registry, Map<String, String> f) async {
   _require(f, ['title', 'start']);
   if (f['all-day'] != 'true') _require(f, ['end']);
   final cals = await accounts.watchCalendars().first;
@@ -313,14 +311,20 @@ Future<void> _create(EventRepository events, AccountRepository accounts,
         accountId: cal.accountId, calendarId: cal.id, providerEventId: id),
   );
   await events.putLocalDirty(event);
-  await events.enqueue('create', id);
-  _ok({'created': _eventJson(event), 'note': 'queued; syncs when app runs'});
+  final job = await events.enqueue('create', id);
+  final push = await _pushJob(events, accounts, registry, job);
+  _ok({'created': _eventJson(event), ...push});
 }
 
-Future<void> _update(EventRepository events, Map<String, String> f) async {
+Future<void> _update(EventRepository events, AccountRepository accounts,
+    ProviderRegistry registry, Map<String, String> f) async {
   _require(f, ['id']);
   final e = await events.getById(f['id']!);
   if (e == null) return _fail('event not found: ${f['id']}');
+  // Вхождение серии: --scope this (по умолчанию, как в приложении) | following |
+  // all. origStart — время вхождения ДО правки: по нему адаптер сдвигает серию
+  // ровно на дельту, а не переставляет её на дату этого вхождения.
+  final scope = _parseScope(f['scope']) ?? RecurrenceScope.thisOnly;
   // --all-day true|false переключает режим; при true даты обрезаются до полуночи.
   final allDay = f['all-day'] == null ? e.allDay : f['all-day'] == 'true';
   DateTime? parse(String? v) {
@@ -342,20 +346,34 @@ Future<void> _update(EventRepository events, Map<String, String> f) async {
     throw 'end must be after start';
   }
   await events.putLocalDirty(updated);
-  await events.enqueue('update', updated.id);
-  _ok({'updated': _eventJson(updated), 'note': 'queued; syncs when app runs'});
+  final job = await events.enqueue('update', updated.id, {
+    'scope': scope.index,
+    'origStart': e.startUtc.toUtc().millisecondsSinceEpoch,
+  });
+  final push = await _pushJob(events, accounts, registry, job);
+  _ok({'updated': _eventJson(updated), 'scope': _scopeName(scope), ...push});
 }
 
-Future<void> _delete(EventRepository events, Map<String, String> f) async {
+Future<void> _delete(EventRepository events, AccountRepository accounts,
+    ProviderRegistry registry, Map<String, String> f) async {
   _require(f, ['id']);
   final e = await events.getById(f['id']!);
   if (e == null) return _fail('event not found: ${f['id']}');
+  // У вхождения серии область обязательна. Раньше задание уходило без неё:
+  // CLI при своём пуше удалял всю серию, а приложение — одно вхождение.
+  final given = _parseScope(f['scope']);
+  if (given == null && (e.recurrenceId != null || e.recurrenceRule != null)) {
+    return _fail('recurring event: pass --scope this|following|all');
+  }
+  final scope = given ?? RecurrenceScope.all;
   await events.putLocalDirty(e.copyWith(deletedRemotely: true));
-  await events.enqueue('delete', e.id);
-  _ok({'deleted': e.id, 'note': 'queued; syncs when app runs'});
+  final job = await events.enqueue('delete', e.id, {'scope': scope.index});
+  final push = await _pushJob(events, accounts, registry, job);
+  _ok({'deleted': e.id, 'scope': _scopeName(scope), ...push});
 }
 
-Future<void> _rsvp(EventRepository events, Map<String, String> f) async {
+Future<void> _rsvp(EventRepository events, AccountRepository accounts,
+    ProviderRegistry registry, Map<String, String> f) async {
   _require(f, ['id', 'response']);
   final e = await events.getById(f['id']!);
   if (e == null) return _fail('event not found: ${f['id']}');
@@ -366,8 +384,9 @@ Future<void> _rsvp(EventRepository events, Map<String, String> f) async {
     _ => throw 'response must be accepted|declined|tentative',
   };
   await events.putLocalDirty(e.copyWith(myResponse: resp));
-  await events.enqueue('rsvp', e.id, {'resp': resp.index});
-  _ok({'id': e.id, 'response': f['response'], 'note': 'queued'});
+  final job = await events.enqueue('rsvp', e.id, {'resp': resp.index});
+  final push = await _pushJob(events, accounts, registry, job);
+  _ok({'id': e.id, 'response': f['response'], ...push});
 }
 
 Future<void> _accounts(AccountRepository accounts) async {
@@ -419,71 +438,146 @@ Future<void> _contactAdd(ContactRepository contacts, Map<String, String> f) asyn
   _ok({'added': {'name': f['name'], 'email': f['email']}});
 }
 
-/// Немедленный пуш Outbox в источники (после изменения через CLI — «сразу синк»).
-/// Печатает прогресс в stderr, чтобы stdout оставался чистым JSON.
-Future<void> _pushOutbox(EventRepository events, AccountRepository accounts,
-    ProviderRegistry registry) async {
-  final pending = await events.pendingOutbox();
-  if (pending.isEmpty) return;
-  final accs = {for (final a in await accounts.allAccounts()) a.id: a};
-  final provisioner = ConferenceProvisioner();
-  for (final item in pending) {
-    try {
-      final e = await events.getById(item.eventId);
-      if (e == null) {
-        await events.removeOutbox(item.id);
-        continue;
-      }
-      final acc = accs[e.source.accountId];
-      if (acc == null) continue;
-      final provider = registry.forAccount(acc);
-      switch (item.op) {
-        case 'create':
-          final cals = await accounts.calendarsOf(acc.id);
-          // СТРОГО целевой календарь этого же аккаунта. НИКОГДА не подставляем
-          // cals.first: иначе событие с чужим calendarId создаётся не там
-          // (в т.ч. в чужом аккаунте) — порча данных (см. sync_engine guard).
-          Calendar? cal;
-          for (final c in cals) {
-            if (c.id == e.calendarId) {
-              cal = c;
-              break;
-            }
-          }
-          if (cal == null) {
-            stderr.writeln('skip create: календарь ${e.calendarId} '
-                'не принадлежит ${acc.id}');
-            continue;
-          }
-          var ev = e;
-          if (ev.conference != null && !ev.conference!.isReady) {
-            ev = await provisioner.ensure(ev,
-                target: acc, allAccounts: accs.values.toList(), events: events);
-          }
-          final created = await provider.createEvent(acc, cal, ev);
-          final saved = (ev.conference?.isReady ?? false)
-              ? created.copyWith(conference: ev.conference)
-              : created;
-          await events.putLocalDirty(saved);
-        case 'update':
-          await provider.updateEvent(acc, e);
-        case 'delete':
-          await provider.deleteEvent(acc, e, RecurrenceScope.all);
-          await provisioner.deleteConference(e.conference); // Zoom standalone
-          await events.hardDelete(e.id);
-        case 'rsvp':
-          final m = RegExp(r'"resp"\s*:\s*(\d+)').firstMatch(item.payloadJson);
-          final resp = ResponseStatus.values[int.parse(m?.group(1) ?? '0')];
-          await provider.respondToInvite(acc, e, resp);
-      }
+/// Немедленный пуш ОДНОГО задания Outbox — того, что поставила эта команда.
+///
+/// Остальную очередь не трогаем: раньше каждый запуск CLI проходил по всей
+/// очереди и при неудаче (без прогретого keyring токенов нет) увеличивал
+/// retryCount каждому заданию, и после пяти запусков фоновый синк приложения
+/// переставал их отправлять. Неудача здесь retryCount не меняет — задание ждёт
+/// синка приложения или `sync`. Прогресс — в stderr, stdout остаётся JSON.
+Future<Map<String, dynamic>> _pushJob(EventRepository events,
+    AccountRepository accounts, ProviderRegistry registry, int jobId) async {
+  const queued = 'queued; the app or `sync` will push it';
+  OutboxData? item;
+  for (final o in await events.pendingOutbox()) {
+    if (o.id == jobId) item = o;
+  }
+  if (item == null) {
+    return const {'pushed': false, 'note': 'job already left the queue'};
+  }
+  try {
+    final e = await events.getById(item.eventId);
+    if (e == null) {
       await events.removeOutbox(item.id);
-      stderr.writeln('pushed ${item.op} ${item.eventId}');
-    } catch (err) {
-      await events.bumpRetry(item.id, item.retryCount + 1);
-      stderr.writeln('push failed (${item.op}): $err');
+      return const {'pushed': false, 'note': 'event is gone; job dropped'};
     }
+    Account? acc;
+    for (final a in await accounts.allAccounts()) {
+      if (a.id == e.source.accountId) acc = a;
+    }
+    if (acc == null) {
+      return {
+        'pushed': false,
+        'note': queued,
+        'pushError': 'account not found: ${e.source.accountId}',
+      };
+    }
+    final CalendarProvider provider = registry.forAccount(acc);
+    final provisioner = ConferenceProvisioner();
+    final scope = _jobScope(item.payloadJson, item.op);
+    switch (item.op) {
+      case 'create':
+        // СТРОГО целевой календарь этого же аккаунта. НИКОГДА не подставляем
+        // cals.first: иначе событие с чужим calendarId создаётся не там
+        // (в т.ч. в чужом аккаунте) — порча данных (см. sync_engine guard).
+        Calendar? cal;
+        for (final c in await accounts.calendarsOf(acc.id)) {
+          if (c.id == e.calendarId) cal = c;
+        }
+        if (cal == null) {
+          return {
+            'pushed': false,
+            'note': queued,
+            'pushError': 'calendar ${e.calendarId} does not belong to ${acc.id}',
+          };
+        }
+        var ev = e;
+        if (ev.conference != null && !ev.conference!.isReady) {
+          ev = await provisioner.ensure(ev,
+              target: acc,
+              allAccounts: await accounts.allAccounts(),
+              events: events);
+        }
+        final created = await provider.createEvent(acc, cal, ev);
+        final saved = (ev.conference?.isReady ?? false)
+            ? created.copyWith(conference: ev.conference)
+            : created;
+        // Как в SyncEngine: серверный id заменяет локальный UUID, а мастер
+        // новой серии помечается чистым — pull принесёт вхождения и уберёт его.
+        if (saved.id != e.id) {
+          await events.rekeyLocalDirtyAndOutbox(e.id, saved);
+        } else {
+          await events.putLocalDirty(saved);
+        }
+        if (saved.recurrenceRule != null && saved.recurrenceId == null) {
+          await events.putLocalClean(saved);
+        }
+      case 'update':
+        final updated = await provider.updateEvent(acc, e,
+            scope: scope,
+            originalStartUtc: _jobEpochUtc(item.payloadJson, 'origStart'));
+        if (updated.id != e.id) {
+          await events.rekeyLocalDirtyAndOutbox(e.id, updated);
+        } else {
+          await events.putLocalDirty(updated);
+        }
+        if (scope != RecurrenceScope.thisOnly) {
+          await events.putLocalClean(updated);
+        }
+      case 'delete':
+        await provider.deleteEvent(acc, e, scope);
+        await provisioner.deleteConference(e.conference); // Zoom standalone
+        await events.hardDelete(e.id);
+      case 'rsvp':
+        final resp =
+            ResponseStatus.values[_jobInt(item.payloadJson, 'resp') ?? 0];
+        await provider.respondToInvite(acc, e, resp);
+    }
+    await events.removeOutbox(item.id);
+    stderr.writeln('pushed ${item.op} ${item.eventId}');
+    return const {'pushed': true};
+  } catch (err) {
+    stderr.writeln('push failed (${item.op}): $err');
+    return {'pushed': false, 'note': queued, 'pushError': '$err'};
   }
 }
+
+int? _jobInt(String json, String key) {
+  final m = RegExp('"$key"\\s*:\\s*(\\d+)').firstMatch(json);
+  return m == null ? null : int.tryParse(m.group(1)!);
+}
+
+/// Область из задания — как в SyncEngine: без поля `scope` delete удаляет
+/// серию целиком, update правит одно вхождение.
+RecurrenceScope _jobScope(String json, String op) {
+  final idx = _jobInt(json, 'scope');
+  if (idx != null && idx < RecurrenceScope.values.length) {
+    return RecurrenceScope.values[idx];
+  }
+  return op == 'delete' ? RecurrenceScope.all : RecurrenceScope.thisOnly;
+}
+
+DateTime? _jobEpochUtc(String json, String key) {
+  final ms = _jobInt(json, key);
+  return ms == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+}
+
+/// `--scope this|following|all` → область для вхождения повторяющейся серии.
+RecurrenceScope? _parseScope(String? s) => switch (s) {
+      null => null,
+      'this' => RecurrenceScope.thisOnly,
+      'following' => RecurrenceScope.thisAndFollowing,
+      'all' => RecurrenceScope.all,
+      _ => throw 'scope must be this|following|all',
+    };
+
+String _scopeName(RecurrenceScope s) => switch (s) {
+      RecurrenceScope.thisOnly => 'this',
+      RecurrenceScope.thisAndFollowing => 'following',
+      RecurrenceScope.all => 'all',
+    };
 
 // ───────────────────────── JSON ─────────────────────────
 
@@ -633,8 +727,8 @@ Calenfi Agent CLI — JSON-интерфейс к локальному кален
              --rrule "FREQ=WEEKLY;BYDAY=MO,WE" (повторение, RFC 5545)
              --conference meet|teams|zoom|telemost]
   update    --id ID [--title --start --end --all-day true|false --location
-                     --description]
-  delete    --id ID
+                     --description] [--scope this|following|all]
+  delete    --id ID [--scope this|following|all]   (у вхождения серии --scope обязателен)
   rsvp      --id ID --response accepted|declined|tentative
   accounts                                               список учётных записей
   calendars                                              список календарей
@@ -642,6 +736,11 @@ Calenfi Agent CLI — JSON-интерфейс к локальному кален
   contacts                                               список контактов
   contact-add --name N --email E                          добавить контакт
   secret-set  --key K --value V                           положить секрет (напр. ключи Zoom)
+
+--scope: this — только это вхождение, following — это и последующие (серия
+обрезается, прошлые вхождения остаются), all — вся серия.
+Записи сразу пробуют отправиться (поле "pushed"); неудача оставляет задание в
+очереди, его отправит приложение или sync.
 
 Время — ISO 8601 (например 2026-06-12T15:00:00). Вывод — JSON.
 Путь к БД можно переопределить через --db или переменную CALENFI_DB.

@@ -469,7 +469,9 @@ class SyncEngine {
             }
           case 'delete':
             if (event != null && event.source.accountId == acc.id) {
-              final idx = int.tryParse(_readInt(item.payloadJson, 'scope'));
+              final idx = int.tryParse(
+                _readInt(item.payloadJson, 'scope') ?? '',
+              );
               final scope =
                   (idx != null &&
                       idx >= 0 &&
@@ -485,9 +487,7 @@ class SyncEngine {
             if (event != null && event.source.accountId == acc.id) {
               final resp =
                   ResponseStatus.values[int.tryParse(
-                        item.payloadJson.contains('resp')
-                            ? _readInt(item.payloadJson, 'resp')
-                            : '0',
+                        _readInt(item.payloadJson, 'resp') ?? '0',
                       ) ??
                       0];
               await provider.respondToInvite(acc, event, resp);
@@ -515,7 +515,7 @@ class SyncEngine {
   /// Область правки/удаления из задания Outbox (по умолчанию — одно вхождение:
   /// так безопаснее, случайная правка не заденет всю серию).
   static RecurrenceScope _readScope(String json) {
-    final idx = int.tryParse(_readInt(json, 'scope'));
+    final idx = int.tryParse(_readInt(json, 'scope') ?? '');
     return (idx != null && idx >= 0 && idx < RecurrenceScope.values.length)
         ? RecurrenceScope.values[idx]
         : RecurrenceScope.thisOnly;
@@ -529,8 +529,10 @@ class SyncEngine {
         : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
   }
 
-  static String _readInt(String json, String key) {
+  /// Числовое поле payload или null, если его нет. Раньше отсутствие давало
+  /// '0', и delete без `scope` превращался в thisOnly вместо всей серии.
+  static String? _readInt(String json, String key) {
     final m = RegExp('"$key"\\s*:\\s*(\\d+)').firstMatch(json);
-    return m?.group(1) ?? '0';
+    return m?.group(1);
   }
 }

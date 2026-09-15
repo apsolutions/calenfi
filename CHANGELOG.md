@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] — 2026-09-15
+
+### Fixed
+- Typing in the search box no longer triggers keyboard shortcuts. Shortcuts
+  without modifiers (R — sync, H, 1/2/3, arrows, N, T) used to fire while a text
+  field had focus, so typing "r" started a sync; they now stay off whenever a
+  text field is focused.
+- A queued delete without an explicit scope removed only one occurrence of a
+  recurring event instead of the whole series: the payload parser turned a
+  missing `scope` into `thisOnly`.
+- Agent CLI (`tools/calenfi`): `delete` and `update` accept
+  `--scope this|following|all`; deleting an occurrence of a recurring event now
+  requires it. The CLI used to delete the whole series when it pushed the job
+  itself, while the app deleted one occurrence.
+- Agent CLI: a write command pushes only the job it has just queued and reports
+  the result in `pushed`. It used to retry the whole Outbox on every run and
+  count each failure, so after five runs without keyring access the app's
+  background sync skipped those jobs.
+
 ## [0.3.5] — 2026-09-13
 
 ### Added

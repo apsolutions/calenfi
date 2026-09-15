@@ -67,6 +67,34 @@ const Map<String, String> kKeymapHints = {
   'Esc': 'Закрыть модалку',
 };
 
+/// Фокус сейчас в поле ввода текста (поиск, форма)?
+///
+/// Привязки без модификаторов — это обычные буквы, цифры и стрелки. Пока
+/// человек печатает, они принадлежат полю: «r» в поиске должна стать буквой,
+/// а не запускать синхронизацию, стрелки — двигать курсор, а не листать неделю.
+bool isEditingText() {
+  final ctx = FocusManager.instance.primaryFocus?.context;
+  if (ctx == null) return false;
+  return ctx.widget is EditableText ||
+      ctx.findAncestorStateOfType<EditableTextState>() != null;
+}
+
+/// Действие глобальной привязки: выключено, пока фокус в поле ввода. Выключенное
+/// действие не поглощает клавишу, и она доходит до текстового поля.
+class _KeymapAction<T extends Intent> extends Action<T> {
+  _KeymapAction(this._onInvoke);
+  final void Function(T intent) _onInvoke;
+
+  @override
+  bool isEnabled(T intent) => !isEditingText();
+
+  @override
+  Object? invoke(T intent) {
+    _onInvoke(intent);
+    return null;
+  }
+}
+
 /// Оборачивает дерево виджетов глобальными привязками + действиями.
 class CalenfiKeymap extends ConsumerWidget {
   const CalenfiKeymap({super.key, required this.child});
@@ -78,39 +106,27 @@ class CalenfiKeymap extends ConsumerWidget {
       shortcuts: kCalenfiKeymap,
       child: Actions(
         actions: <Type, Action<Intent>>{
-          NewEventIntent: CallbackAction<NewEventIntent>(onInvoke: (_) {
+          NewEventIntent: _KeymapAction<NewEventIntent>((_) {
             EventEditor.open(context,
                 initialDay: ref.read(focusedDateProvider));
-            return null;
           }),
-          TodayIntent: CallbackAction<TodayIntent>(onInvoke: (_) {
-            goToday(ref);
-            return null;
-          }),
-          PrevPeriodIntent: CallbackAction<PrevPeriodIntent>(onInvoke: (_) {
-            shiftFocused(ref, -1);
-            return null;
-          }),
-          NextPeriodIntent: CallbackAction<NextPeriodIntent>(onInvoke: (_) {
-            shiftFocused(ref, 1);
-            return null;
-          }),
-          SetViewIntent: CallbackAction<SetViewIntent>(onInvoke: (i) {
+          TodayIntent: _KeymapAction<TodayIntent>((_) => goToday(ref)),
+          PrevPeriodIntent:
+              _KeymapAction<PrevPeriodIntent>((_) => shiftFocused(ref, -1)),
+          NextPeriodIntent:
+              _KeymapAction<NextPeriodIntent>((_) => shiftFocused(ref, 1)),
+          SetViewIntent: _KeymapAction<SetViewIntent>((i) {
             ref.read(viewModeProvider.notifier).state = i.mode;
-            return null;
           }),
-          SyncIntent: CallbackAction<SyncIntent>(onInvoke: (_) {
+          SyncIntent: _KeymapAction<SyncIntent>((_) {
             // Сначала флашим отложенные правки в Outbox, потом синк (иначе
             // уходит только первое перенесённое событие). См. _SyncStatus.
             ref.read(pendingEditsProvider.notifier).applyAll().then(
                 (_) => ref.read(syncTriggerProvider)());
-            return null;
           }),
-          ToggleCancelledIntent:
-              CallbackAction<ToggleCancelledIntent>(onInvoke: (_) {
+          ToggleCancelledIntent: _KeymapAction<ToggleCancelledIntent>((_) {
             final cur = ref.read(showCancelledProvider);
             ref.read(showCancelledProvider.notifier).state = !cur;
-            return null;
           }),
         },
         child: Focus(autofocus: true, child: child),

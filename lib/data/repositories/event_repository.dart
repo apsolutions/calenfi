@@ -285,7 +285,8 @@ class EventRepository {
 
   // --- Outbox (FR-S6) ---
 
-  Future<void> enqueue(
+  /// Ставит задание в Outbox и возвращает его id.
+  Future<int> enqueue(
     String op,
     String eventId, [
     Map<String, dynamic> payload = const {},
