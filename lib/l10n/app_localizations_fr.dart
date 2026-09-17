@@ -127,6 +127,9 @@ class L10nFr extends L10n {
   String get accPasswordSaved => 'Mot de passe enregistré, synchronisation…';
 
   @override
+  String get accReconnect => 'Reconnecter';
+
+  @override
   String get accPort => 'Port';
 
   @override

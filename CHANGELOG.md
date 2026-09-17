@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] — 2026-09-17
+
+### Added
+- **Reconnect** for an account whose sign-in a provider has revoked
+  (`invalid_grant`): in the account menu and right next to the error. It runs
+  the browser sign-in for the same mailbox and replaces the token, keeping the
+  account, its calendars and its settings. Signing in with a different mailbox
+  is refused instead of quietly adding a second account. Until now the only way
+  back was **Add account**, which reads as adding a new one.
+
 ## [0.3.6] — 2026-09-15
 
 ### Fixed

@@ -34,6 +34,7 @@
   "accSaveAndSignIn": "Guardar e iniciar sesión",
   "accPassword": "Contraseña",
   "accPasswordSaved": "Contraseña guardada, sincronizando…",
+  "accReconnect": "Volver a conectar",
   "accPort": "Puerto",
   "accSave": "Guardar",
   "accSectionCalendars": "Calendarios",

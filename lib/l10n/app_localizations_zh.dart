@@ -125,6 +125,9 @@ class L10nZh extends L10n {
   String get accPasswordSaved => '密码已保存，正在同步…';
 
   @override
+  String get accReconnect => '重新连接';
+
+  @override
   String get accPort => '端口';
 
   @override

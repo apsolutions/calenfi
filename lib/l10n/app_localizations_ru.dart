@@ -127,6 +127,9 @@ class L10nRu extends L10n {
   String get accPasswordSaved => 'Пароль сохранён, синхронизирую…';
 
   @override
+  String get accReconnect => 'Переподключить';
+
+  @override
   String get accPort => 'Порт';
 
   @override

@@ -10,6 +10,7 @@ import '../../domain/models/enums.dart';
 import '../../domain/models/refresh_policy.dart';
 import '../../l10n/app_localizations.dart';
 import 'add_account_sheet.dart';
+import 'connect_account.dart';
 
 /// Экран учётных записей (FR-A): список УЗ, статусы, календари с тумблерами
 /// видимости, удаление, добавление.
@@ -75,6 +76,8 @@ class _AccountTile extends ConsumerWidget {
             await removeConfiguredAccount(account.id);
           } else if (v == 'password') {
             await _changePassword(context, ref);
+          } else if (v == 'reconnect') {
+            await _reconnect(context, ref);
           }
         },
         itemBuilder: (_) => [
@@ -83,6 +86,8 @@ class _AccountTile extends ConsumerWidget {
               value: 'password',
               child: Text(l10n.accChangePassword),
             ),
+          if (_usesOAuth(account.provider))
+            PopupMenuItem(value: 'reconnect', child: Text(l10n.accReconnect)),
           PopupMenuItem(value: 'delete', child: Text(l10n.accDelete)),
         ],
       ),
@@ -93,6 +98,15 @@ class _AccountTile extends ConsumerWidget {
             dense: true,
             leading: const Icon(Icons.error_outline, size: 20),
             title: SelectableText(l10n.accFailed(account.lastError!.trim())),
+            // Отозванный токен (invalid_grant) лечится только новым входом,
+            // и кнопка нужна прямо на ошибке: иначе остаётся «удалить и
+            // завести заново», то есть потерять настройки записи.
+            trailing: _usesOAuth(account.provider)
+                ? TextButton(
+                    onPressed: () => _reconnect(context, ref),
+                    child: Text(l10n.accReconnect),
+                  )
+                : null,
           ),
         // Расписание автообновления этого аккаунта (FR-A10).
         ListTile(
@@ -161,6 +175,37 @@ class _AccountTile extends ConsumerWidget {
   /// Провайдеры, работающие по паролю (в отличие от OAuth-токенов).
   static bool _usesPassword(ProviderType p) =>
       p == ProviderType.caldav || p == ProviderType.ews;
+
+  /// Провайдеры со входом через браузер — их и можно переподключить.
+  static bool _usesOAuth(ProviderType p) =>
+      p == ProviderType.google || p == ProviderType.graph;
+
+  /// Повторный вход для СУЩЕСТВУЮЩЕЙ записи: id, календари и настройки
+  /// остаются, меняется только токен. Вход не тем ящиком отвергается, новая
+  /// запись при этом не заводится.
+  Future<void> _reconnect(BuildContext context, WidgetRef ref) async {
+    final l10n = L10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(l10n.accCompleteSignIn(account.displayName)),
+      duration: const Duration(seconds: 10),
+    ));
+    try {
+      final who =
+          await ref.read(connectAccountServiceProvider).reconnect(account);
+      // Снекбары становятся в очередь: без hide результат ждал бы, пока
+      // подсказка отвисит свои 10 секунд, и вход выглядел бы зависшим.
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(l10n.accConnected(who))));
+    } catch (e) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(
+        content: Text(l10n.accFailed(e.toString())),
+        duration: const Duration(seconds: 12),
+      ));
+    }
+  }
 
   /// Диалог ввода нового пароля → запись в secrets.env → пересоздание
   /// провайдеров и немедленный синк, чтобы аккаунт снова подключился.

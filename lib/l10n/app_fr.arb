@@ -34,6 +34,7 @@
   "accSaveAndSignIn": "Enregistrer et se connecter",
   "accPassword": "Mot de passe",
   "accPasswordSaved": "Mot de passe enregistré, synchronisation…",
+  "accReconnect": "Reconnecter",
   "accPort": "Port",
   "accSave": "Enregistrer",
   "accSectionCalendars": "Calendriers",

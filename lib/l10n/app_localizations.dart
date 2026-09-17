@@ -309,6 +309,12 @@ abstract class L10n {
   /// **'Password saved, syncing…'**
   String get accPasswordSaved;
 
+  /// No description provided for @accReconnect.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnect'**
+  String get accReconnect;
+
   /// No description provided for @accPort.
   ///
   /// In en, this message translates to:

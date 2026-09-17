@@ -34,6 +34,7 @@
   "accSaveAndSignIn": "Сохранить и войти",
   "accPassword": "Пароль",
   "accPasswordSaved": "Пароль сохранён, синхронизирую…",
+  "accReconnect": "Переподключить",
   "accPort": "Порт",
   "accSave": "Сохранить",
   "accSectionCalendars": "Календари",

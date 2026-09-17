@@ -83,6 +83,7 @@
   "accSaveAndSignIn": "Save and sign in",
   "accPassword": "Password",
   "accPasswordSaved": "Password saved, syncing…",
+  "accReconnect": "Reconnect",
   "accPort": "Port",
   "accSave": "Save",
   "accSectionCalendars": "Calendars",

@@ -109,9 +109,29 @@ class ConnectAccountService {
     if (!opened) throw OAuthException('не удалось открыть браузер для входа');
   }
 
+  /// Переподключить УЖЕ заведённую учётную запись: тот же id, новый токен.
+  ///
+  /// Протухший или отозванный refresh-токен (`invalid_grant`) лечится только
+  /// повторным входом. Раньше для этого приходилось заводить запись заново —
+  /// [expectEmail] не даёт случайно подключить вместо неё другой ящик.
+  Future<String> reconnect(Account acc) async => switch (acc.provider) {
+        ProviderType.google => await connectGoogle(expectEmail: acc.email),
+        ProviderType.graph => await connectMicrosoft(expectEmail: acc.email),
+        _ => throw OAuthException(
+            'переподключение через браузер есть только у Google и Office 365'),
+      };
+
+  /// Вход не тем ящиком: аккаунт не трогаем и токен не пишем.
+  void _requireSameMailbox(String? expectEmail, String email) {
+    if (expectEmail == null) return;
+    if (expectEmail.toLowerCase() == email.toLowerCase()) return;
+    throw OAuthException('вход выполнен как $email, а нужен $expectEmail');
+  }
+
   /// Подключить Google-аккаунт: OAuth → сохранить refresh-токен в keyring →
   /// завести аккаунт. Возвращает адрес подключённого ящика.
-  Future<String> connectGoogle() async {
+  /// [expectEmail] — переподключение конкретной записи (см. [reconnect]).
+  Future<String> connectGoogle({String? expectEmail}) async {
     _requireOAuthClient(OAuthApp.google);
     final creds = CredentialSource.load();
     final clientId = creds.googleClientId!;
@@ -131,6 +151,7 @@ class ConnectAccountService {
           'Google не выдал refresh-токен — повторите вход (нужно согласие).');
     }
     final email = await _googleEmail(dio, res.accessToken);
+    _requireSameMailbox(expectEmail, email);
 
     // Формат google.oauth2 Credentials — как читает GoogleToken.loadFor.
     await SecretStore.instance.write(
@@ -150,7 +171,8 @@ class ConnectAccountService {
 
   /// Подключить Microsoft 365 / Outlook: OAuth (public client, PKCE) →
   /// сохранить refresh-токен → завести аккаунт.
-  Future<String> connectMicrosoft() async {
+  /// [expectEmail] — переподключение конкретной записи (см. [reconnect]).
+  Future<String> connectMicrosoft({String? expectEmail}) async {
     _requireOAuthClient(OAuthApp.microsoft);
     final creds = CredentialSource.load();
     final clientId = creds.graphClientId!;
@@ -162,13 +184,18 @@ class ConnectAccountService {
       tokenEndpoint: '$base/token',
       clientId: clientId,
       scopes: _graphScopes,
-      extraAuthParams: const {'prompt': 'select_account'},
+      // При переподключении подсказываем тот же ящик, чтобы человек не выбирал
+      // его заново среди чужих учётных записей Microsoft.
+      extraAuthParams: expectEmail == null
+          ? const {'prompt': 'select_account'}
+          : {'prompt': 'select_account', 'login_hint': expectEmail},
       launch: _openBrowser,
     );
     if (res.refreshToken == null) {
       throw OAuthException('Microsoft не выдал refresh-токен — повторите вход.');
     }
     final email = await _graphEmail(dio, res.accessToken);
+    _requireSameMailbox(expectEmail, email);
 
     await SecretStore.instance.write(
       GraphToken.secretKey(email),

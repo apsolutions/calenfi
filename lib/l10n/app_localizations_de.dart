@@ -127,6 +127,9 @@ class L10nDe extends L10n {
   String get accPasswordSaved => 'Passwort gespeichert, synchronisiere…';
 
   @override
+  String get accReconnect => 'Neu verbinden';
+
+  @override
   String get accPort => 'Port';
 
   @override

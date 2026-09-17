@@ -127,6 +127,9 @@ class L10nEs extends L10n {
   String get accPasswordSaved => 'Contraseña guardada, sincronizando…';
 
   @override
+  String get accReconnect => 'Volver a conectar';
+
+  @override
   String get accPort => 'Puerto';
 
   @override

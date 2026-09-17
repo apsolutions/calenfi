@@ -34,6 +34,7 @@
   "accSaveAndSignIn": "保存并登录",
   "accPassword": "密码",
   "accPasswordSaved": "密码已保存，正在同步…",
+  "accReconnect": "重新连接",
   "accPort": "端口",
   "accSave": "保存",
   "accSectionCalendars": "日历",
