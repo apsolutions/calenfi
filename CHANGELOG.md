@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8] — 2026-09-18
+
+### Fixed
+- Connecting or reconnecting an Office 365 account failed right after the
+  browser said "Done": Calenfi looked up the mailbox address with Graph `/me`,
+  which needs the `User.Read` permission Calenfi does not request, so Graph
+  answered 403 and the new token was never saved. The address now comes from
+  the `id_token` returned with the sign-in (`email`, else
+  `preferred_username`), with `/me` kept only as a fallback.
+- Matching a reconnected mailbox to the existing account ignores letter case,
+  so a differently capitalised address no longer creates a second account.
+
 ## [0.3.7] — 2026-09-17
 
 ### Added

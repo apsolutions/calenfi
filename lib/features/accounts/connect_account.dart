@@ -194,7 +194,11 @@ class ConnectAccountService {
     if (res.refreshToken == null) {
       throw OAuthException('Microsoft не выдал refresh-токен — повторите вход.');
     }
-    final email = await _graphEmail(dio, res.accessToken);
+    // Адрес берём из id_token: запрос `/me` требует User.Read, которого в
+    // [_graphScopes] нет, и Graph отвечает 403 — вход в браузере проходил,
+    // а подключение молча обрывалось до записи токена.
+    final email = graphEmailFromIdToken(res.raw['id_token']) ??
+        await _graphEmail(dio, res.accessToken);
     _requireSameMailbox(expectEmail, email);
 
     await SecretStore.instance.write(
@@ -288,6 +292,27 @@ class ConnectAccountService {
     return email;
   }
 
+  /// Адрес Microsoft-аккаунта из `id_token` (scopes `openid email`): claim
+  /// `email`, иначе `preferred_username`. Подпись не проверяем — токен пришёл
+  /// напрямую от token-эндпоинта по TLS. null — адреса в токене нет.
+  static String? graphEmailFromIdToken(Object? idToken) {
+    if (idToken is! String) return null;
+    final parts = idToken.split('.');
+    if (parts.length < 2) return null;
+    try {
+      final claims = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+      if (claims is! Map) return null;
+      for (final key in const ['email', 'preferred_username']) {
+        final v = claims[key];
+        if (v is String && v.contains('@')) return v;
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
+  }
+
   Future<String> _graphEmail(Dio dio, String accessToken) async {
     final r = await dio.get('https://graph.microsoft.com/v1.0/me',
         queryParameters: {r'$select': 'mail,userPrincipalName'},
@@ -310,7 +335,9 @@ class ConnectAccountService {
     // Один и тот же ящик уже подключён? Переиспользуем его id (переподключение).
     final existing =
         (ref.read(accountsStreamProvider).value ?? const <Account>[])
-            .where((a) => a.email == email && a.provider == provider)
+            .where((a) =>
+                a.email.toLowerCase() == email.toLowerCase() &&
+                a.provider == provider)
             .firstOrNull;
     return Account(
       id: existing?.id ?? freeAccountId(provider, taken: taken),
