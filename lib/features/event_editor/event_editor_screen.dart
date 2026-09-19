@@ -386,31 +386,34 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   }
 
   /// Повторение (FR-E6): диалог в стиле Outlook (см. recurrence_editor.dart).
-  /// У экземпляра серии правило меняется только у мастера — строка заблокирована.
+  ///
+  /// У экземпляра серии строка раньше была заблокирована, и сменить
+  /// периодичность было негде вообще: приходилось удалять серию и заводить
+  /// заново. Теперь она открывается и отсюда, а правка уходит мастеру, то есть
+  /// всей серии (см. [_save]). У Google и Graph правило вхождения на клиенте не
+  /// хранится, поэтому до правки в подписи стоит пояснение про серию.
   Widget _recurrenceRow() {
     final l10n = L10n.of(context);
     final isInstance = widget.existing?.recurrenceId != null;
+    final unknownRule = isInstance && _recurrenceRule == null;
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.repeat),
       title: Text(l10n.edRepeat),
       subtitle: Text(
-        isInstance
+        unknownRule
             ? l10n.edSeriesInstance
             : describeRecurrence(context, _recurrenceRule),
       ),
-      enabled: !isInstance,
-      onTap: isInstance
-          ? null
-          : () async {
-              final r = await showRecurrenceDialog(
-                context,
-                initial: _recurrenceRule,
-                start: _start,
-              );
-              if (r == null) return; // отмена
-              setState(() => _recurrenceRule = r.isEmpty ? null : r);
-            },
+      onTap: () async {
+        final r = await showRecurrenceDialog(
+          context,
+          initial: _recurrenceRule,
+          start: _start,
+        );
+        if (r == null) return; // отмена
+        setState(() => _recurrenceRule = r.isEmpty ? null : r);
+      },
     );
   }
 
@@ -875,10 +878,16 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       // операции у провайдера, выбор делает пользователь (см. диалог).
       var scope = RecurrenceScope.thisOnly;
       if (existing != null && existing.isRecurring) {
-        if (!mounted) return;
-        final chosen = await askRecurrenceEditScope(context);
-        if (chosen == null) return; // передумал — не отправляем ничего
-        scope = chosen;
+        // Смена самой периодичности относится к серии целиком: спрашивать
+        // «только это вхождение» здесь не о чем, такой правки не существует.
+        if (_recurrenceRule != existing.recurrenceRule) {
+          scope = RecurrenceScope.all;
+        } else {
+          if (!mounted) return;
+          final chosen = await askRecurrenceEditScope(context);
+          if (chosen == null) return; // передумал — не отправляем ничего
+          scope = chosen;
+        }
       }
       await pending.stage(
         event,

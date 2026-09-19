@@ -625,8 +625,9 @@ class CalDavProvider implements CalendarProvider {
     }
 
     // Правка «на всю серию»: адресуем мастер и сдвигаем его DTSTART на ту же
-    // дельту, что получило вхождение. RRULE берём из мастера — у экземпляра
-    // его нет, а _mergeVEventFields перезаписывает это свойство.
+    // дельту, что получило вхождение. RRULE берём из правки, если пользователь
+    // сменил периодичность, иначе из мастера: _mergeVEventFields перезаписывает
+    // это свойство, и без подстановки правило серии потерялось бы.
     if (scope != RecurrenceScope.thisOnly && updated.recurrenceId != null) {
       final master = family.firstWhereOrNull(
         (component) =>
@@ -651,7 +652,7 @@ class CalDavProvider implements CalendarProvider {
       final seriesUpdate = updated.asSeriesMaster(
         startUtc: masterStart,
         endUtc: masterStart.add(updated.endUtc.difference(updated.startUtc)),
-        recurrenceRule: master.event.rrule,
+        recurrenceRule: updated.recurrenceRule ?? master.event.rrule,
       );
       final replacement = _mergeVEventFields(
         master.match.group(0)!,

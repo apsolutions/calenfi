@@ -136,8 +136,36 @@ void main() {
     // +15 минут он обязан остаться 30 августа, но в 11:15.
     expect(patch.body['start']['dateTime'], '2026-08-30T11:15:00.000Z');
     expect(patch.body['end']['dateTime'], '2026-08-30T12:15:00.000Z');
-    // Правило серии остаётся серверным: перезаписывать его правкой нельзя.
+    // Правило серии остаётся серверным, пока пользователь его не менял.
     expect(patch.body.containsKey('recurrence'), isFalse);
+  });
+
+  // Жалоба: «у повторяющихся событий нельзя менять периодичность». Правило
+  // вхождения Google не отдаёт, поэтому непустое поле — это новая
+  // периодичность, и она обязана уйти мастеру.
+  test('новая периодичность уходит мастеру серии', () async {
+    final adapter = _GoogleAdapter(masterJson());
+    final occurrence = CalendarEvent(
+      id: 'acc-google:master_20260913T110000Z',
+      calendarId: 'acc-google|primary',
+      title: 'Тренировка',
+      startUtc: DateTime.utc(2026, 9, 13, 11),
+      endUtc: DateTime.utc(2026, 9, 13, 12),
+      recurrenceId: 'master',
+      recurrenceRule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU',
+      source: const EventSource(
+        accountId: 'acc-google',
+        calendarId: 'acc-google|primary',
+        providerEventId: 'master_20260913T110000Z',
+      ),
+    );
+
+    await providerWith(adapter)
+        .updateEvent(account, occurrence, scope: RecurrenceScope.all);
+
+    final patch = adapter.calls.last;
+    expect(patch.path, endsWith('/events/master'));
+    expect(patch.body['recurrence'], ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=SU']);
   });
 
   test('дельта берётся из id вхождения, когда исходное время не передали',

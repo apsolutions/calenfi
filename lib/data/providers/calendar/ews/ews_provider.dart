@@ -207,6 +207,12 @@ ${_attendeesXml(attendees)}
     // применить не к чему (UI для таких событий выбор и не показывает).
     final id = e.source.providerEventId;
     if (id == null) throw StateError('EWS update: нет ItemId');
+    // Периодичность здесь менять нечему: мастера серии у нас нет. Молча
+    // проглотить правило нельзя — правка выглядела бы применённой.
+    if (e.recurrenceRule != null) {
+      throw UnsupportedError(
+          'Exchange: смена периодичности серии из Calenfi не поддерживается');
+    }
     String set(String field, String ns, String inner) =>
         '<t:SetItemField><t:FieldURI FieldURI="$field"/>'
         '<t:CalendarItem>$inner</t:CalendarItem></t:SetItemField>';

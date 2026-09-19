@@ -163,8 +163,9 @@ class GoogleProvider implements CalendarProvider {
   }
 
   /// Переносит правку экземпляра на мастер серии: время сдвигаем на ту же
-  /// дельту, что и у вхождения, остальные поля копируем как есть. RRULE не
-  /// трогаем — правило серии остаётся серверным.
+  /// дельту, что и у вхождения, остальные поля копируем как есть. RRULE шлём
+  /// только когда пользователь сам сменил периодичность (у вхождения Google
+  /// правила нет, поэтому непустое поле здесь — это и есть новое правило).
   Future<CalendarEvent> _updateSeries(
     Account acc,
     CalendarEvent e, {
@@ -192,12 +193,16 @@ class GoogleProvider implements CalendarProvider {
     final duration = e.endUtc.difference(e.startUtc);
     final newStart = masterStart.add(shift);
 
-    // Поля берём из правки, время — сдвинутое от мастера. RRULE не шлём:
-    // правило серии остаётся тем, что лежит на сервере.
+    // Поля берём из правки, время — сдвинутое от мастера.
     final payload = _toGoogle(e)
       ..remove('recurrence')
       ..['start'] = _gTime(newStart, allDay: e.allDay)
       ..['end'] = _gTime(newStart.add(duration), allDay: e.allDay);
+    // Новая периодичность (FR-E6): без этого правило серии оставалось
+    // серверным и сменить его было нечем.
+    if (e.recurrenceRule != null) {
+      payload['recurrence'] = ['RRULE:${e.recurrenceRule}'];
+    }
 
     // Список участников у вхождения и у серии может расходиться (исключение
     // серии умеет иметь свой). Одинаковый состав не отправляем: Google

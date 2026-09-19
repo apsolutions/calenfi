@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10] — 2026-09-20
+
+### Fixed
+- The recurrence of a repeating event could not be changed at all. Opening an
+  occurrence — which is what the calendar shows — greyed out the **Repeat**
+  row, and editing the whole series deliberately dropped the rule before
+  sending it, so the only way to change "every week" into "every two weeks"
+  was to delete the series and create it again. The row now opens from an
+  occurrence too, and a changed rule goes to the series master: Google gets a
+  new `RRULE`, Office 365 a new `patternedRecurrence`, CalDAV a rewritten
+  `RRULE` in the master `VEVENT`. Exchange has no master to edit, so it now
+  refuses with a clear message instead of silently ignoring the change.
+- The recurrence dialog did not fit a phone screen: a fixed width of 380
+  points and non-wrapping rows pushed it off the right edge.
+
 ## [0.3.9] — 2026-09-20
 
 ### Changed

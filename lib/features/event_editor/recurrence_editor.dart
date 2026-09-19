@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -257,7 +259,10 @@ class _RecurrenceDialogState extends State<_RecurrenceDialog> {
     return AlertDialog(
       title: Text(l10n.edRecurrenceTitle),
       content: SizedBox(
-        width: 380,
+        // Жёсткие 380 точек не влезали в телефон: у AlertDialog по 40 точек
+        // отступа с каждой стороны, и на экране 400 строка уезжала вправо.
+        width: math.min(
+            380.0, MediaQuery.of(context).size.width - 80).clamp(240.0, 380.0),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -392,7 +397,7 @@ class _RecurrenceDialogState extends State<_RecurrenceDialog> {
                       value: _EndMode.afterCount,
                       title: Row(
                         children: [
-                          Text(l10n.edEndAfter),
+                          Flexible(child: Text(l10n.edEndAfter)),
                           const SizedBox(width: 8),
                           SizedBox(
                             width: 48,
@@ -406,7 +411,9 @@ class _RecurrenceDialogState extends State<_RecurrenceDialog> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(l10n.edOccurrencesLabel),
+                          Flexible(
+                              child: Text(l10n.edOccurrencesLabel,
+                                  overflow: TextOverflow.ellipsis)),
                         ],
                       ),
                     ),
@@ -416,7 +423,7 @@ class _RecurrenceDialogState extends State<_RecurrenceDialog> {
                       value: _EndMode.byDate,
                       title: Row(
                         children: [
-                          Text(l10n.edUntil),
+                          Flexible(child: Text(l10n.edUntil)),
                           const SizedBox(width: 8),
                           TextButton(
                             onPressed: () async {

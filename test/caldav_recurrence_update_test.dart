@@ -156,6 +156,53 @@ END:VCALENDAR''';
     expect(updated.source.etag, 'updated-etag');
   });
 
+  // Жалоба: «у повторяющихся событий нельзя менять периодичность». Новое
+  // правило приходит с вхождением и должно попасть в мастер, а не потеряться
+  // (раньше RRULE всегда брался из мастера, то есть оставался прежним).
+  test('новая периодичность уходит в RRULE мастера', () async {
+    final adapter = _RecordingAdapter(
+      (options) => options.method == 'GET'
+          ? ResponseBody.fromString(originalIcs, 200, headers: {
+              'etag': ['fresh-etag'],
+            })
+          : ResponseBody.fromString('', 204, headers: {
+              'etag': ['updated-etag'],
+            }),
+    );
+    final provider = CalDavProvider(
+      account: account,
+      password: 'x',
+      dio: _dioWith(adapter),
+    );
+    final recurrenceId =
+        DateTime.utc(2026, 9, 3, 10).millisecondsSinceEpoch.toString();
+    final occurrence = CalendarEvent(
+      id: 'acc-yandex:events-10922764:series-uid:$recurrenceId',
+      calendarId: calendar.id,
+      title: 'Серия',
+      startUtc: DateTime.utc(2026, 9, 3, 10),
+      endUtc: DateTime.utc(2026, 9, 3, 11),
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=TH',
+      recurrenceId: recurrenceId,
+      source: const EventSource(
+        accountId: 'acc-yandex',
+        calendarId: 'acc-yandex|/calendars/me%40example.org/events-10922764/',
+        providerEventId: href,
+        etag: 'stale-etag',
+      ),
+    );
+
+    await provider.updateEvent(account, occurrence,
+        scope: RecurrenceScope.all,
+        originalStartUtc: DateTime.utc(2026, 9, 3, 10));
+
+    final put = adapter.requests.last;
+    expect(put.body, contains('RRULE:FREQ=WEEKLY;BYDAY=TH'));
+    expect(put.body, isNot(contains('RRULE:FREQ=DAILY;COUNT=3')));
+    // Мастер остаётся мастером: его дата начала не переезжает на вхождение.
+    expect(put.body, contains('DTSTART:20260901T100000Z'));
+  });
+
   test('update мастера сохраняет EXDATE, RDATE и VALARM', () async {
     const ics = '''BEGIN:VCALENDAR\r
 BEGIN:VEVENT\r

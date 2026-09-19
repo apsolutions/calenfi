@@ -145,7 +145,8 @@ class GraphProvider implements CalendarProvider {
   }
 
   /// Переносит правку вхождения на мастер серии: время — со сдвигом, остальные
-  /// поля как есть. patternedRecurrence не трогаем (правило остаётся серверным).
+  /// поля как есть. Правило шлём только когда пользователь сменил периодичность
+  /// (у вхождения Graph своего правила нет, поэтому непустое поле — это новое).
   Future<CalendarEvent> _updateSeries(
     CalendarEvent e, {
     required String seriesId,
@@ -169,6 +170,15 @@ class GraphProvider implements CalendarProvider {
       ..remove('recurrence')
       ..['start'] = t(newStart)
       ..['end'] = t(newEnd);
+    // Новая периодичность (FR-E6).
+    if (e.recurrenceRule != null) {
+      final pattern = rruleToGraphRecurrence(e.recurrenceRule!, newStart);
+      if (pattern == null) {
+        throw UnsupportedError(
+            'O365: правило повторения «${e.recurrenceRule}» не поддерживается');
+      }
+      payload['recurrence'] = pattern;
+    }
     // Тот же состав участников не переотправляем: Graph на запись поля шлёт
     // обновлённые приглашения, а переносу времени это ни к чему.
     final remoteEmails = <String>{
