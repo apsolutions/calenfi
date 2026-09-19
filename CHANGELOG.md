@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] — 2026-09-20
+
+### Changed
+- Phone layout of the date header. The day view spent a whole 57-pixel row on a
+  weekday and a day number ("MON 21") while the top bar showed the same date
+  clipped to "MON, 2…". The row is gone; a single full-width line under the top
+  bar now carries weekday, day, month and year, and the top bar keeps a
+  "today" button in its place.
+- That line is also a control: tapping the day part opens the week, tapping the
+  month part opens the month.
+- Tapping a day in the month grid opens the day view on a phone, where a cell
+  shows only a couple of events. On a wide screen the month view stays and only
+  the focused day changes.
+
 ## [0.3.8] — 2026-09-18
 
 ### Fixed

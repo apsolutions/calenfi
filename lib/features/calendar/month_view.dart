@@ -77,7 +77,7 @@ class MonthView extends ConsumerWidget {
   }
 }
 
-class _MonthCell extends StatelessWidget {
+class _MonthCell extends ConsumerWidget {
   const _MonthCell({
     required this.day,
     required this.inMonth,
@@ -91,12 +91,25 @@ class _MonthCell extends StatelessWidget {
   final Map<String, int> colors;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final now = DateTime.now();
     final isToday =
         day.year == now.year && day.month == now.month && day.day == now.day;
 
-    return DecoratedBox(
+    // Тап по свободному месту ячейки — это выбор дня. На телефоне в месячной
+    // сетке видно только пару чипсов, поэтому там сразу открываем дневной вид;
+    // на широком экране месяц информативен, и вид не меняем.
+    final narrow = MediaQuery.of(context).size.width < 600;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        ref.read(focusedDateProvider.notifier).state =
+            DateTime(day.year, day.month, day.day);
+        if (narrow) {
+          ref.read(viewModeProvider.notifier).state = CalendarViewMode.day;
+        }
+      },
+      child: DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
@@ -141,6 +154,7 @@ class _MonthCell extends StatelessWidget {
             );
           },
         ),
+      ),
       ),
     );
   }

@@ -455,6 +455,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               if (ref.watch(moveModeProvider) &&
                   MediaQuery.of(context).size.width < 600)
                 const _MoveModeHint(),
+              // Дата целиком — отдельной строкой, только на телефоне: в
+              // топ-баре там на неё не хватает ширины.
+              if (MediaQuery.of(context).size.width < 600) ...[
+                const PeriodLine(),
+              ],
               const Divider(height: 1),
               Expanded(
                 child: switch (mode) {
@@ -726,16 +731,18 @@ class _TopBar extends ConsumerWidget {
       child: Row(
         children: [
           if (narrow)
-            // Вместо бесполезной иконки — сама дата; тап по ней = «Сегодня».
+            // Дата уехала в отдельную строку под топ-баром (PeriodLine), здесь
+            // от неё оставалось «ПН, 2…». Освободившуюся ширину забирает
+            // переключатель видов, а возврат к сегодняшнему дню — кнопкой.
             Expanded(
-              child: TextButton(
-                onPressed: () => goToday(ref),
-                style: TextButton.styleFrom(
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  style: _compactIconStyle,
+                  onPressed: () => goToday(ref),
+                  tooltip: L10n.of(context).calToday,
+                  icon: const Icon(Icons.today_outlined),
                 ),
-                child: const _PeriodTitle(),
               ),
             )
           else ...[
@@ -814,6 +821,60 @@ class _TopBar extends ConsumerWidget {
   }
 }
 
+/// Строка периода на телефоне: «пн, 21 · сентябрь 2026» во всю ширину.
+///
+/// Раньше эту строку занимали день недели и число в кружке («ПН 21»), а дата в
+/// левом углу топ-бара обрезалась до «ПН, 2…». Здесь она помещается целиком и
+/// работает вместо кнопок: тап по дню открывает неделю, тап по месяцу — месяц.
+class PeriodLine extends ConsumerWidget {
+  const PeriodLine({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(focusedDateProvider);
+    final now = ref.watch(calendarClockProvider);
+    final isToday =
+        d.year == now.year && d.month == now.month && d.day == now.day;
+    final loc = Localizations.localeOf(context).toString();
+    // Месяц отдельной частью: «21 сентября 2026» одной строкой не разрезать на
+    // два жеста, а склейка «пн, 21 сентябрь» читается неграмотно.
+    final dayText = '${DateFormat.E(loc).format(d)}, ${d.day}';
+    final monthText = DateFormat.yMMMM(loc).format(d);
+    final colors = Theme.of(context).colorScheme;
+
+    Widget part(String text, ValueKey<String> key, CalendarViewMode mode,
+            {Color? color}) =>
+        InkWell(
+          key: key,
+          onTap: () => ref.read(viewModeProvider.notifier).state = mode,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Text(text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600, color: color)),
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        children: [
+          part(dayText, const ValueKey('period-line-day'),
+              CalendarViewMode.week,
+              color: isToday ? colors.primary : null),
+          Text('·', style: TextStyle(color: colors.outline)),
+          Flexible(
+            child: part(monthText, const ValueKey('period-line-month'),
+                CalendarViewMode.month),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Заголовок периода: в дне — «ср, 17 июн», в неделе — «14–20 июн»,
 /// в месяце — «июнь 2026». Чётко показывает, на что смотрит пользователь.
 class _PeriodTitle extends ConsumerWidget {
@@ -830,11 +891,18 @@ class _PeriodTitle extends ConsumerWidget {
     // GlobalMaterialLocalizations при установленной локали MaterialApp.
     final loc = Localizations.localeOf(context).toString();
     final dayMon = DateFormat.MMMd(loc); // «17 июн» / «Jun 17»
+    // На телефоне дата — единственная подпись периода (строку «ПН 21» над
+    // сеткой там больше не рисуем), и она обязана помещаться целиком:
+    // приписка «Сегодня · » обрезала её до «ПН, 2…». Сегодняшний день
+    // помечаем цветом и насыщенностью, а не словом.
+    final narrow = MediaQuery.of(context).size.width < 600;
     String text;
     switch (mode) {
       case CalendarViewMode.day:
         text = DateFormat.MMMEd(loc).format(d); // «ср, 17 июн» / «Wed, Jun 17»
-        if (isToday) text = '${L10n.of(context).calToday} · $text';
+        if (isToday && !narrow) {
+          text = '${L10n.of(context).calToday} · $text';
+        }
       case CalendarViewMode.week:
         final s = weekStart(d);
         final e = s.add(const Duration(days: 6));
@@ -843,8 +911,15 @@ class _PeriodTitle extends ConsumerWidget {
         text = DateFormat.yMMMM(loc).format(d); // «июнь 2026» / «June 2026»
     }
     return Text(text,
+        key: const ValueKey('period-title'),
         overflow: TextOverflow.ellipsis,
         softWrap: false,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600));
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: isToday && narrow
+              ? Theme.of(context).colorScheme.primary
+              : null,
+        ));
   }
 }

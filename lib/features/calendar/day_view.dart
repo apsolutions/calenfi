@@ -72,10 +72,17 @@ class _DayPage extends ConsumerWidget {
     final eventsAsync = ref.watch(dayEventsProvider(day));
     final colorsAsync = ref.watch(calendarColorsProvider);
 
+    // На телефоне отдельная строка с днём недели и числом съедала 57 точек
+    // высоты, повторяя дату, которая и так стоит в шапке экрана. Оставляем её
+    // только там, где места много (планшет, десктоп).
+    final wide = MediaQuery.of(context).size.width >= 600;
+
     return Column(
       children: [
-        DayColumnHeader(day: day),
-        const Divider(height: 1),
+        if (wide) ...[
+          DayColumnHeader(day: day),
+          const Divider(height: 1),
+        ],
         Expanded(
           child: eventsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
