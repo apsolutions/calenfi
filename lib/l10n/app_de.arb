@@ -92,6 +92,7 @@
   "detInMultipleCalendars": "In mehreren Kalendern ({count}):",
   "detJoin": "Beitreten · {label}",
   "detMeetingLinkCopied": "Besprechungslink kopiert",
+  "detAttachments": "Anhänge",
   "detOpenInCloud": "In der Cloud öffnen",
   "detOptional": "optional",
   "detOrganizer": "Organisator",

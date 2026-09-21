@@ -316,6 +316,9 @@ class L10nDe extends L10n {
   String get detMeetingLinkCopied => 'Besprechungslink kopiert';
 
   @override
+  String get detAttachments => 'Anhänge';
+
+  @override
   String get detOpenInCloud => 'In der Cloud öffnen';
 
   @override

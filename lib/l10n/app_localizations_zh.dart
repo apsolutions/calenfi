@@ -311,6 +311,9 @@ class L10nZh extends L10n {
   String get detMeetingLinkCopied => '会议链接已复制';
 
   @override
+  String get detAttachments => '附件';
+
+  @override
   String get detOpenInCloud => '在云端打开';
 
   @override

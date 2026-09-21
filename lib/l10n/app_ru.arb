@@ -92,6 +92,7 @@
   "detInMultipleCalendars": "В нескольких календарях ({count}):",
   "detJoin": "Присоединиться · {label}",
   "detMeetingLinkCopied": "Ссылка на встречу скопирована",
+  "detAttachments": "Вложения",
   "detOpenInCloud": "Открыть в облаке",
   "detOptional": "необязателен",
   "detOrganizer": "организатор",

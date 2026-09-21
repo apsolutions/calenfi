@@ -316,6 +316,9 @@ class L10nEs extends L10n {
   String get detMeetingLinkCopied => 'Enlace de la reunión copiado';
 
   @override
+  String get detAttachments => 'Adjuntos';
+
+  @override
   String get detOpenInCloud => 'Abrir en la nube';
 
   @override

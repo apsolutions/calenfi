@@ -317,6 +317,9 @@ class L10nFr extends L10n {
   String get detMeetingLinkCopied => 'Lien de la réunion copié';
 
   @override
+  String get detAttachments => 'Pièces jointes';
+
+  @override
   String get detOpenInCloud => 'Ouvrir dans le cloud';
 
   @override

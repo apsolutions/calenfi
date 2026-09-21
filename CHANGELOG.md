@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11] — 2026-09-21
+
+### Added
+- Attachments. An event now carries the files a provider attached to it, and
+  the details card lists them under **Attachments**: an icon by file type, the
+  file name, its size when known, and a tap that opens the file in the cloud.
+  Sources: `ATTACH` in CalDAV (`FMTTYPE`, `FILENAME`/`X-FILENAME`, `SIZE`),
+  `attachments` in Google Calendar, and the attachment list of an Office 365
+  event, fetched only for events whose `hasAttachments` is set. Inline
+  (`VALUE=BINARY`) attachments are skipped on purpose: the file would bloat the
+  local database and there is nothing to open.
+- Database schema 9: the new `attachments_json` column on events.
+
 ## [0.3.10] — 2026-09-20
 
 ### Fixed

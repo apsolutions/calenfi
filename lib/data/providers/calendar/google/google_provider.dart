@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../../domain/models/account.dart';
+import '../../../../domain/models/attachment.dart';
 import '../../../../domain/models/attendee.dart';
 import '../../../../domain/models/calendar.dart';
 import '../../../../domain/models/calendar_event.dart';
@@ -394,6 +395,16 @@ class GoogleProvider implements CalendarProvider {
       myResponse: myResp,
       conference: conf,
       status: status,
+      // Вложения Google — ссылки на файлы Диска (FR-E12).
+      attachments: [
+        for (final a in (e['attachments'] as List? ?? const []))
+          if ((a as Map)['fileUrl'] is String)
+            Attachment(
+              uri: a['fileUrl'] as String,
+              fileName: a['title'] as String?,
+              mimeType: a['mimeType'] as String?,
+            ),
+      ],
       webUrl: e['htmlLink'] as String?,
       // У экземпляров (singleEvents=true) стоит recurringEventId — id мастера.
       // Кладём его в recurrenceId: событие распознаётся как повторяющееся.

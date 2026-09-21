@@ -1562,6 +1562,17 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _attachmentsJsonMeta = const VerificationMeta(
+    'attachmentsJson',
+  );
+  @override
+  late final GeneratedColumn<String> attachmentsJson = GeneratedColumn<String>(
+    'attachments_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _dirtyMeta = const VerificationMeta('dirty');
   @override
   late final GeneratedColumn<bool> dirty = GeneratedColumn<bool>(
@@ -1602,6 +1613,7 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     conferenceJson,
     attendeesJson,
     remindersJson,
+    attachmentsJson,
     dirty,
   ];
   @override
@@ -1784,6 +1796,15 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
         ),
       );
     }
+    if (data.containsKey('attachments_json')) {
+      context.handle(
+        _attachmentsJsonMeta,
+        attachmentsJson.isAcceptableOrUnknown(
+          data['attachments_json']!,
+          _attachmentsJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('dirty')) {
       context.handle(
         _dirtyMeta,
@@ -1907,6 +1928,10 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
         DriftSqlType.string,
         data['${effectivePrefix}reminders_json'],
       ),
+      attachmentsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}attachments_json'],
+      ),
       dirty: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}dirty'],
@@ -1962,6 +1987,9 @@ class Event extends DataClass implements Insertable<Event> {
   final String? attendeesJson;
   final String? remindersJson;
 
+  /// Вложения события (ATTACH / attachments) — JSON-список ссылок с подписями.
+  final String? attachmentsJson;
+
   /// Признак «есть несинхронизированные локальные правки» (для Outbox-логики).
   final bool dirty;
   const Event({
@@ -1990,6 +2018,7 @@ class Event extends DataClass implements Insertable<Event> {
     this.conferenceJson,
     this.attendeesJson,
     this.remindersJson,
+    this.attachmentsJson,
     required this.dirty,
   });
   @override
@@ -2060,6 +2089,9 @@ class Event extends DataClass implements Insertable<Event> {
     if (!nullToAbsent || remindersJson != null) {
       map['reminders_json'] = Variable<String>(remindersJson);
     }
+    if (!nullToAbsent || attachmentsJson != null) {
+      map['attachments_json'] = Variable<String>(attachmentsJson);
+    }
     map['dirty'] = Variable<bool>(dirty);
     return map;
   }
@@ -2113,6 +2145,9 @@ class Event extends DataClass implements Insertable<Event> {
       remindersJson: remindersJson == null && nullToAbsent
           ? const Value.absent()
           : Value(remindersJson),
+      attachmentsJson: attachmentsJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(attachmentsJson),
       dirty: Value(dirty),
     );
   }
@@ -2156,6 +2191,7 @@ class Event extends DataClass implements Insertable<Event> {
       conferenceJson: serializer.fromJson<String?>(json['conferenceJson']),
       attendeesJson: serializer.fromJson<String?>(json['attendeesJson']),
       remindersJson: serializer.fromJson<String?>(json['remindersJson']),
+      attachmentsJson: serializer.fromJson<String?>(json['attachmentsJson']),
       dirty: serializer.fromJson<bool>(json['dirty']),
     );
   }
@@ -2196,6 +2232,7 @@ class Event extends DataClass implements Insertable<Event> {
       'conferenceJson': serializer.toJson<String?>(conferenceJson),
       'attendeesJson': serializer.toJson<String?>(attendeesJson),
       'remindersJson': serializer.toJson<String?>(remindersJson),
+      'attachmentsJson': serializer.toJson<String?>(attachmentsJson),
       'dirty': serializer.toJson<bool>(dirty),
     };
   }
@@ -2226,6 +2263,7 @@ class Event extends DataClass implements Insertable<Event> {
     Value<String?> conferenceJson = const Value.absent(),
     Value<String?> attendeesJson = const Value.absent(),
     Value<String?> remindersJson = const Value.absent(),
+    Value<String?> attachmentsJson = const Value.absent(),
     bool? dirty,
   }) => Event(
     id: id ?? this.id,
@@ -2267,6 +2305,9 @@ class Event extends DataClass implements Insertable<Event> {
     remindersJson: remindersJson.present
         ? remindersJson.value
         : this.remindersJson,
+    attachmentsJson: attachmentsJson.present
+        ? attachmentsJson.value
+        : this.attachmentsJson,
     dirty: dirty ?? this.dirty,
   );
   Event copyWithCompanion(EventsCompanion data) {
@@ -2324,6 +2365,9 @@ class Event extends DataClass implements Insertable<Event> {
       remindersJson: data.remindersJson.present
           ? data.remindersJson.value
           : this.remindersJson,
+      attachmentsJson: data.attachmentsJson.present
+          ? data.attachmentsJson.value
+          : this.attachmentsJson,
       dirty: data.dirty.present ? data.dirty.value : this.dirty,
     );
   }
@@ -2356,6 +2400,7 @@ class Event extends DataClass implements Insertable<Event> {
           ..write('conferenceJson: $conferenceJson, ')
           ..write('attendeesJson: $attendeesJson, ')
           ..write('remindersJson: $remindersJson, ')
+          ..write('attachmentsJson: $attachmentsJson, ')
           ..write('dirty: $dirty')
           ..write(')'))
         .toString();
@@ -2388,6 +2433,7 @@ class Event extends DataClass implements Insertable<Event> {
     conferenceJson,
     attendeesJson,
     remindersJson,
+    attachmentsJson,
     dirty,
   ]);
   @override
@@ -2419,6 +2465,7 @@ class Event extends DataClass implements Insertable<Event> {
           other.conferenceJson == this.conferenceJson &&
           other.attendeesJson == this.attendeesJson &&
           other.remindersJson == this.remindersJson &&
+          other.attachmentsJson == this.attachmentsJson &&
           other.dirty == this.dirty);
 }
 
@@ -2448,6 +2495,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
   final Value<String?> conferenceJson;
   final Value<String?> attendeesJson;
   final Value<String?> remindersJson;
+  final Value<String?> attachmentsJson;
   final Value<bool> dirty;
   final Value<int> rowid;
   const EventsCompanion({
@@ -2476,6 +2524,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     this.conferenceJson = const Value.absent(),
     this.attendeesJson = const Value.absent(),
     this.remindersJson = const Value.absent(),
+    this.attachmentsJson = const Value.absent(),
     this.dirty = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -2505,6 +2554,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     this.conferenceJson = const Value.absent(),
     this.attendeesJson = const Value.absent(),
     this.remindersJson = const Value.absent(),
+    this.attachmentsJson = const Value.absent(),
     this.dirty = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -2539,6 +2589,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Expression<String>? conferenceJson,
     Expression<String>? attendeesJson,
     Expression<String>? remindersJson,
+    Expression<String>? attachmentsJson,
     Expression<bool>? dirty,
     Expression<int>? rowid,
   }) {
@@ -2568,6 +2619,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
       if (conferenceJson != null) 'conference_json': conferenceJson,
       if (attendeesJson != null) 'attendees_json': attendeesJson,
       if (remindersJson != null) 'reminders_json': remindersJson,
+      if (attachmentsJson != null) 'attachments_json': attachmentsJson,
       if (dirty != null) 'dirty': dirty,
       if (rowid != null) 'rowid': rowid,
     });
@@ -2599,6 +2651,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Value<String?>? conferenceJson,
     Value<String?>? attendeesJson,
     Value<String?>? remindersJson,
+    Value<String?>? attachmentsJson,
     Value<bool>? dirty,
     Value<int>? rowid,
   }) {
@@ -2628,6 +2681,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
       conferenceJson: conferenceJson ?? this.conferenceJson,
       attendeesJson: attendeesJson ?? this.attendeesJson,
       remindersJson: remindersJson ?? this.remindersJson,
+      attachmentsJson: attachmentsJson ?? this.attachmentsJson,
       dirty: dirty ?? this.dirty,
       rowid: rowid ?? this.rowid,
     );
@@ -2719,6 +2773,9 @@ class EventsCompanion extends UpdateCompanion<Event> {
     if (remindersJson.present) {
       map['reminders_json'] = Variable<String>(remindersJson.value);
     }
+    if (attachmentsJson.present) {
+      map['attachments_json'] = Variable<String>(attachmentsJson.value);
+    }
     if (dirty.present) {
       map['dirty'] = Variable<bool>(dirty.value);
     }
@@ -2756,6 +2813,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
           ..write('conferenceJson: $conferenceJson, ')
           ..write('attendeesJson: $attendeesJson, ')
           ..write('remindersJson: $remindersJson, ')
+          ..write('attachmentsJson: $attachmentsJson, ')
           ..write('dirty: $dirty, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -4480,6 +4538,7 @@ typedef $$EventsTableCreateCompanionBuilder =
       Value<String?> conferenceJson,
       Value<String?> attendeesJson,
       Value<String?> remindersJson,
+      Value<String?> attachmentsJson,
       Value<bool> dirty,
       Value<int> rowid,
     });
@@ -4510,6 +4569,7 @@ typedef $$EventsTableUpdateCompanionBuilder =
       Value<String?> conferenceJson,
       Value<String?> attendeesJson,
       Value<String?> remindersJson,
+      Value<String?> attachmentsJson,
       Value<bool> dirty,
       Value<int> rowid,
     });
@@ -4666,6 +4726,11 @@ class $$EventsTableFilterComposer
 
   ColumnFilters<String> get remindersJson => $composableBuilder(
     column: $table.remindersJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4827,6 +4892,11 @@ class $$EventsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get dirty => $composableBuilder(
     column: $table.dirty,
     builder: (column) => ColumnOrderings(column),
@@ -4965,6 +5035,11 @@ class $$EventsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get attachmentsJson => $composableBuilder(
+    column: $table.attachmentsJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get dirty =>
       $composableBuilder(column: $table.dirty, builder: (column) => column);
 
@@ -5045,6 +5120,7 @@ class $$EventsTableTableManager
                 Value<String?> conferenceJson = const Value.absent(),
                 Value<String?> attendeesJson = const Value.absent(),
                 Value<String?> remindersJson = const Value.absent(),
+                Value<String?> attachmentsJson = const Value.absent(),
                 Value<bool> dirty = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventsCompanion(
@@ -5073,6 +5149,7 @@ class $$EventsTableTableManager
                 conferenceJson: conferenceJson,
                 attendeesJson: attendeesJson,
                 remindersJson: remindersJson,
+                attachmentsJson: attachmentsJson,
                 dirty: dirty,
                 rowid: rowid,
               ),
@@ -5103,6 +5180,7 @@ class $$EventsTableTableManager
                 Value<String?> conferenceJson = const Value.absent(),
                 Value<String?> attendeesJson = const Value.absent(),
                 Value<String?> remindersJson = const Value.absent(),
+                Value<String?> attachmentsJson = const Value.absent(),
                 Value<bool> dirty = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => EventsCompanion.insert(
@@ -5131,6 +5209,7 @@ class $$EventsTableTableManager
                 conferenceJson: conferenceJson,
                 attendeesJson: attendeesJson,
                 remindersJson: remindersJson,
+                attachmentsJson: attachmentsJson,
                 dirty: dirty,
                 rowid: rowid,
               ),

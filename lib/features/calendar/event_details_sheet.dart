@@ -155,6 +155,28 @@ class _EventDetails extends ConsumerWidget {
               LinkifiedText(e.description!),
             ],
 
+            // Вложения провайдера (FR-E12): имя файла ведёт на сам файл в
+            // облаке, скачивать его в базу незачем.
+            if (e.attachments.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Row(children: [
+                const Icon(Icons.attach_file, size: 16, color: Colors.grey),
+                const SizedBox(width: 8),
+                Text(l10n.detAttachments,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              ]),
+              const SizedBox(height: 6),
+              for (final a in e.attachments)
+                _Copyable(
+                  value: a.uri,
+                  child: InkWell(
+                    onTap: () => _launch(a.uri),
+                    child: _row(_attachmentIcon(a.mimeType), a.displayName,
+                        link: true, trailing: _attachmentSize(a.sizeBytes)),
+                  ),
+                ),
+            ],
+
             // ссылка в облаке (кликабельна) + компактный id (для CLI --id)
             const SizedBox(height: 10),
             if (e.webUrl != null && e.webUrl!.isNotEmpty)
@@ -277,6 +299,38 @@ Widget _calendarRow(L10n l10n, CalendarInfo? info,
         Text(trailing, style: const TextStyle(color: Colors.grey, fontSize: 12)),
     ]),
   );
+}
+
+/// Иконка по типу файла: картинка, PDF, таблица, документ, прочее.
+IconData _attachmentIcon(String? mimeType) {
+  final m = (mimeType ?? '').toLowerCase();
+  if (m.startsWith('image/')) return Icons.image_outlined;
+  if (m.startsWith('video/')) return Icons.videocam_outlined;
+  if (m.startsWith('audio/')) return Icons.audiotrack_outlined;
+  if (m.contains('pdf')) return Icons.picture_as_pdf_outlined;
+  if (m.contains('sheet') || m.contains('excel') || m.contains('csv')) {
+    return Icons.table_chart_outlined;
+  }
+  if (m.contains('word') || m.contains('document') || m.startsWith('text/')) {
+    return Icons.description_outlined;
+  }
+  return Icons.insert_drive_file_outlined;
+}
+
+/// Размер файла человеку: «1,2 МБ». null — провайдер размера не прислал.
+String? _attachmentSize(int? bytes) {
+  if (bytes == null || bytes <= 0) return null;
+  const units = ['B', 'KB', 'MB', 'GB'];
+  var value = bytes.toDouble();
+  var unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  final text = value >= 10 || unit == 0
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+  return '$text ${units[unit]}';
 }
 
 Widget _row(IconData icon, String text, {bool link = false, String? trailing}) =>

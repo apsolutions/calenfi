@@ -1,3 +1,4 @@
+import 'attachment.dart';
 import 'attendee.dart';
 import 'conference.dart';
 import 'enums.dart';
@@ -57,6 +58,7 @@ class CalendarEvent {
     this.showAs = ShowAs.busy,
     this.visibility = EventVisibility.defaultVis,
     this.reminders = const [],
+    this.attachments = const [],
     this.conference,
     required this.source,
     this.status = EventStatus.confirmed,
@@ -92,6 +94,9 @@ class CalendarEvent {
   final ShowAs showAs;
   final EventVisibility visibility;
   final List<Reminder> reminders;
+
+  /// Файлы, приложенные к событию у провайдера (FR-E12).
+  final List<Attachment> attachments;
   final Conference? conference;
   final EventSource source;
 
@@ -171,6 +176,7 @@ class CalendarEvent {
         showAs: showAs,
         visibility: visibility,
         reminders: reminders,
+        attachments: attachments,
         conference: conference,
         source: newSource,
         status: status,
@@ -204,6 +210,7 @@ class CalendarEvent {
     showAs: showAs,
     visibility: visibility,
     reminders: reminders,
+    attachments: attachments,
     conference: conference,
     source: source,
     status: status,
@@ -235,6 +242,7 @@ class CalendarEvent {
     ShowAs? showAs,
     EventVisibility? visibility,
     List<Reminder>? reminders,
+    List<Attachment>? attachments,
     Conference? conference,
     EventStatus? status,
     bool? deletedRemotely,
@@ -259,6 +267,7 @@ class CalendarEvent {
     showAs: showAs ?? this.showAs,
     visibility: visibility ?? this.visibility,
     reminders: reminders ?? this.reminders,
+    attachments: attachments ?? this.attachments,
     conference: conference ?? this.conference,
     source: source ?? this.source,
     webUrl: webUrl ?? this.webUrl,

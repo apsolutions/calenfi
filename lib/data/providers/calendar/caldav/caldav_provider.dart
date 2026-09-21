@@ -7,6 +7,7 @@ import 'package:rrule/rrule.dart';
 import 'package:xml/xml.dart';
 
 import '../../../../domain/models/account.dart';
+import '../../../../domain/models/attachment.dart';
 import '../../../../domain/models/attendee.dart';
 import '../../../../domain/models/calendar.dart';
 import '../../../../domain/models/calendar_event.dart';
@@ -1338,6 +1339,15 @@ class CalDavProvider implements CalendarProvider {
           .toList(),
       myResponse: response,
       status: status,
+      attachments: [
+        for (final a in v.attachments)
+          Attachment(
+            uri: a.uri,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+          ),
+      ],
       webUrl: v.url,
       conference: telemostUrl == null || telemostUrl.isEmpty
           ? null

@@ -92,6 +92,7 @@
   "detInMultipleCalendars": "在多个日历中（{count}）：",
   "detJoin": "加入 · {label}",
   "detMeetingLinkCopied": "会议链接已复制",
+  "detAttachments": "附件",
   "detOpenInCloud": "在云端打开",
   "detOptional": "可选",
   "detOrganizer": "组织者",

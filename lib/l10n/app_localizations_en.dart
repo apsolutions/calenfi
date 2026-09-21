@@ -315,6 +315,9 @@ class L10nEn extends L10n {
   String get detMeetingLinkCopied => 'Meeting link copied';
 
   @override
+  String get detAttachments => 'Attachments';
+
+  @override
   String get detOpenInCloud => 'Open in cloud';
 
   @override

@@ -92,6 +92,7 @@
   "detInMultipleCalendars": "Dans plusieurs agendas ({count}) :",
   "detJoin": "Rejoindre · {label}",
   "detMeetingLinkCopied": "Lien de la réunion copié",
+  "detAttachments": "Pièces jointes",
   "detOpenInCloud": "Ouvrir dans le cloud",
   "detOptional": "facultatif",
   "detOrganizer": "organisateur",

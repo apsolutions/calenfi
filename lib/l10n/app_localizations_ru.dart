@@ -321,6 +321,9 @@ class L10nRu extends L10n {
   String get detMeetingLinkCopied => 'Ссылка на встречу скопирована';
 
   @override
+  String get detAttachments => 'Вложения';
+
+  @override
   String get detOpenInCloud => 'Открыть в облаке';
 
   @override

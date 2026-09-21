@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../../domain/models/attendee.dart';
 import '../../domain/models/calendar_event.dart';
+import '../../domain/models/attachment.dart';
 import '../../domain/models/conference.dart';
 import '../../domain/models/enums.dart';
 import '../../domain/models/reminder.dart';
@@ -45,6 +46,7 @@ class EventMapper {
       showAs: r.showAs,
       visibility: r.visibility,
       reminders: _decodeReminders(r.remindersJson),
+      attachments: _decodeAttachments(r.attachmentsJson),
       conference: conference,
       source: EventSource(
         accountId: r.accountId,
@@ -87,6 +89,7 @@ class EventMapper {
       conferenceJson: Value(_encodeConference(e.conference)),
       attendeesJson: Value(_encodeAttendees(e.attendees)),
       remindersJson: Value(_encodeReminders(e.reminders)),
+      attachmentsJson: Value(_encodeAttachments(e.attachments)),
       dirty: Value(dirty),
     );
   }
@@ -143,6 +146,33 @@ class EventMapper {
       password: m['pwd'] as String?,
       accountId: m['accountId'] as String?,
     );
+  }
+
+  // --- attachments ---
+  static String? _encodeAttachments(List<Attachment> a) => a.isEmpty
+      ? null
+      : jsonEncode([
+          for (final x in a)
+            {
+              'uri': x.uri,
+              if (x.fileName != null) 'name': x.fileName,
+              if (x.mimeType != null) 'mime': x.mimeType,
+              if (x.sizeBytes != null) 'size': x.sizeBytes,
+            },
+        ]);
+
+  static List<Attachment> _decodeAttachments(String? s) {
+    if (s == null || s.isEmpty) return const [];
+    final list = jsonDecode(s) as List;
+    return [
+      for (final m in list)
+        Attachment(
+          uri: m['uri'] as String,
+          fileName: m['name'] as String?,
+          mimeType: m['mime'] as String?,
+          sizeBytes: m['size'] as int?,
+        ),
+    ];
   }
 
   // --- reminders ---

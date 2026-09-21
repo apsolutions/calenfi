@@ -657,6 +657,12 @@ abstract class L10n {
   /// **'Meeting link copied'**
   String get detMeetingLinkCopied;
 
+  /// No description provided for @detAttachments.
+  ///
+  /// In en, this message translates to:
+  /// **'Attachments'**
+  String get detAttachments;
+
   /// No description provided for @detOpenInCloud.
   ///
   /// In en, this message translates to:

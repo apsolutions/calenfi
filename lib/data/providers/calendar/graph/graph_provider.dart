@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../../domain/models/account.dart';
+import '../../../../domain/models/attachment.dart';
 import '../../../../domain/models/attendee.dart';
 import '../../../../domain/models/calendar.dart';
 import '../../../../domain/models/calendar_event.dart';
@@ -86,14 +87,23 @@ class GraphProvider implements CalendarProvider {
     // символов) → длинные ссылки (Telemost и т.п.) режутся. body.content —
     // полный текст, из него берём конференцию.
     const select =
-        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type';
+        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type,hasAttachments';
     String? url =
         '$_base/me/calendars/${_calId(cal)}/calendarView?startDateTime=${range.startUtc.toUtc().toIso8601String()}&endDateTime=${range.endUtc.toUtc().toIso8601String()}&\$select=$select&\$top=200';
     while (url != null) {
       final resp = await _dio.get(url, options: await _opts(utcTz: true));
       for (final e in (resp.data['value'] as List? ?? [])) {
-        final ev = _toEvent(acc, cal, e as Map<String, dynamic>);
-        if (ev != null) out.add(ev);
+        final map = e as Map<String, dynamic>;
+        var ev = _toEvent(acc, cal, map);
+        if (ev == null) continue;
+        // Файлы Exchange лежат отдельным ресурсом, и список тянем только у тех
+        // событий, у которых флаг hasAttachments: лишний запрос на каждое
+        // событие календаря был бы дорогим.
+        if (map['hasAttachments'] == true) {
+          ev = ev.copyWith(
+              attachments: await _attachments(map['id'] as String?, ev.webUrl));
+        }
+        out.add(ev);
       }
       url = resp.data['@odata.nextLink'] as String?;
     }
@@ -120,6 +130,31 @@ class GraphProvider implements CalendarProvider {
       options: await _opts(contentType: Headers.jsonContentType),
     );
     return _toEvent(acc, cal, resp.data as Map<String, dynamic>) ?? e;
+  }
+
+  /// Имена вложений события. Скачать файл по ссылке без заголовка
+  /// авторизации нельзя, поэтому ведём на само событие в Outlook Web —
+  /// оттуда файл и забирается.
+  Future<List<Attachment>> _attachments(String? eventId, String? webUrl) async {
+    if (eventId == null) return const [];
+    try {
+      final resp = await _dio.get(
+        '$_base/me/events/$eventId/attachments?\$select=name,contentType,size',
+        options: await _opts(),
+      );
+      return [
+        for (final a in (resp.data['value'] as List? ?? const []))
+          Attachment(
+            uri: webUrl ?? '$_base/me/events/$eventId/attachments',
+            fileName: (a as Map)['name'] as String?,
+            mimeType: a['contentType'] as String?,
+            sizeBytes: (a['size'] as num?)?.toInt(),
+          ),
+      ];
+    } on DioException {
+      // Нет прав на вложения или сеть моргнула — событие важнее списка файлов.
+      return const [];
+    }
   }
 
   @override

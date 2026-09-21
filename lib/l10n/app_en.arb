@@ -186,6 +186,7 @@
     }
   },
   "detMeetingLinkCopied": "Meeting link copied",
+  "detAttachments": "Attachments",
   "detOpenInCloud": "Open in cloud",
   "detOptional": "optional",
   "detOrganizer": "organizer",

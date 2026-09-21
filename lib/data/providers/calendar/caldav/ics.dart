@@ -16,6 +16,7 @@ class VEvent {
     this.exdatesUtc = const [],
     this.organizerEmail,
     this.attendees = const [],
+    this.attachments = const [],
     this.timeZoneId = 'UTC',
     this.url,
     this.telemostConferenceUrl,
@@ -45,6 +46,10 @@ class VEvent {
   final List<DateTime> exdatesUtc;
   final String? organizerEmail;
   final List<IcsAttendee> attendees;
+
+  /// Вложения из строк `ATTACH` (RFC 5545). Встроенные `VALUE=BINARY`
+  /// пропускаем: в локальную базу такой файл класть незачем.
+  final List<IcsAttachment> attachments;
   final String timeZoneId;
 
   /// Web-ссылка на событие (Yandex кладёт сюда calendar.yandex.ru/event?...).
@@ -59,6 +64,15 @@ class VEvent {
   final int? sequence;
   final DateTime? dtStampUtc;
   final DateTime? lastModifiedUtc;
+}
+
+/// Вложение из строки `ATTACH`: ссылка плюс подписи из параметров.
+class IcsAttachment {
+  IcsAttachment(this.uri, {this.fileName, this.mimeType, this.sizeBytes});
+  final String uri;
+  final String? fileName;
+  final String? mimeType;
+  final int? sizeBytes;
 }
 
 class IcsAttendee {
@@ -78,15 +92,22 @@ List<VEvent> parseIcs(String ics) {
 
   Map<String, _Prop>? cur;
   final attendees = <IcsAttendee>[];
+  final attachments = <IcsAttachment>[];
   final exdates = <DateTime>[];
   for (final line in lines) {
     if (line == 'BEGIN:VEVENT') {
       cur = {};
       attendees.clear();
+      attachments.clear();
       exdates.clear();
     } else if (line == 'END:VEVENT') {
       if (cur != null) {
-        final e = _build(cur, List.of(attendees), List.of(exdates));
+        final e = _build(
+          cur,
+          List.of(attendees),
+          List.of(exdates),
+          List.of(attachments),
+        );
         if (e != null) events.add(e);
       }
       cur = null;
@@ -102,6 +123,24 @@ List<VEvent> parseIcs(String ics) {
             cutype: prop.params['CUTYPE'],
           ),
         );
+      } else if (prop.name == 'ATTACH') {
+        // Встроенный файл (VALUE=BINARY / ENCODING=BASE64) пропускаем: в
+        // карточке показывать нечего, а база от него распухает.
+        final inline = prop.params['VALUE'] == 'BINARY' ||
+            prop.params['ENCODING'] == 'BASE64';
+        final uri = prop.value.trim();
+        if (!inline && uri.isNotEmpty) {
+          attachments.add(IcsAttachment(
+            uri,
+            // FILENAME — расширение Apple/Google, X-FILENAME — Яндекса и
+            // Exchange; берём то, что пришло.
+            fileName: _unescape(prop.params['FILENAME'] ??
+                prop.params['X-FILENAME'] ??
+                prop.params['X-APPLE-FILENAME']),
+            mimeType: prop.params['FMTTYPE'],
+            sizeBytes: int.tryParse(prop.params['SIZE'] ?? ''),
+          ));
+        }
       } else if (prop.name == 'EXDATE') {
         for (final value in prop.value.split(',')) {
           try {
@@ -122,6 +161,7 @@ VEvent? _build(
   Map<String, _Prop> p,
   List<IcsAttendee> attendees,
   List<DateTime> exdates,
+  List<IcsAttachment> attachments,
 ) {
   final dtstart = p['DTSTART'];
   if (dtstart == null) return null;
@@ -144,6 +184,7 @@ VEvent? _build(
     rrule: p['RRULE']?.value,
     recurrenceIdUtc: _tryParseDate(p['RECURRENCE-ID']),
     exdatesUtc: exdates,
+    attachments: attachments,
     organizerEmail: p['ORGANIZER'] != null
         ? _mailto(p['ORGANIZER']!.value)
         : null,
