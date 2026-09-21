@@ -18,14 +18,22 @@ class GoogleToken {
     required this.clientSecret,
     required this.refreshToken,
     required this.tokenUri,
+    this.email,
     this.accessToken,
     this.expiry,
   });
 
   final String clientId;
   final String clientSecret;
-  final String refreshToken;
+
+  /// Не final: провайдер вправе выдать новый refresh-токен при обновлении,
+  /// и тогда прежний перестаёт работать (у Google это редкость, у Entra —
+  /// каждый раз, см. GraphToken).
+  String refreshToken;
   final String tokenUri;
+
+  /// Ящик, под ключом которого токен лежит в keyring; null — сохранять некуда.
+  final String? email;
   String? accessToken;
   DateTime? expiry;
 
@@ -47,6 +55,7 @@ class GoogleToken {
       clientSecret: m['client_secret'] as String,
       refreshToken: m['refresh_token'] as String,
       tokenUri: (m['token_uri'] as String?) ?? 'https://oauth2.googleapis.com/token',
+      email: email,
       accessToken: m['token'] as String?,
     );
   }
@@ -79,6 +88,25 @@ class GoogleToken {
     accessToken = at;
     final ttl = (data['expires_in'] as num?)?.toInt() ?? 3600;
     expiry = DateTime.now().add(Duration(seconds: ttl));
+    await _keepRotatedRefreshToken(data['refresh_token']);
     return accessToken!;
+  }
+
+  /// Принимает и сохраняет новый refresh-токен, если он пришёл в ответе.
+  Future<void> _keepRotatedRefreshToken(Object? fresh) async {
+    if (fresh is! String || fresh.isEmpty || fresh == refreshToken) return;
+    refreshToken = fresh;
+    final key = email;
+    if (key == null) return;
+    await SecretStore.instance.write(
+      secretKey(key),
+      jsonEncode({
+        'token': accessToken,
+        'refresh_token': refreshToken,
+        'token_uri': tokenUri,
+        'client_id': clientId,
+        'client_secret': clientSecret,
+      }),
+    );
   }
 }

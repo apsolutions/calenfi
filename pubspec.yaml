@@ -1,7 +1,7 @@
 name: calenfi
 description: "Calenfi — кросс-платформенный агрегатор календарей (local-first)."
 publish_to: 'none'
-version: 0.3.11+17
+version: 0.3.12+18
 
 environment:
   sdk: ^3.12.1

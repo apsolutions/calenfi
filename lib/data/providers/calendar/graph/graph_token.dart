@@ -16,13 +16,21 @@ class GraphToken {
     required this.clientId,
     required this.tenant,
     required this.refreshToken,
+    this.email,
     this.accessToken,
     this.expiry,
   });
 
   final String clientId;
   final String tenant;
-  final String refreshToken;
+
+  /// Refresh-токен. Не final: Entra выдаёт новый при каждом обновлении и
+  /// через сутки гасит прежний, поэтому ротацию надо принимать и сохранять.
+  String refreshToken;
+
+  /// Ящик, под ключом которого токен лежит в keyring. null — токен собран в
+  /// тесте или вручную, сохранять ротацию некуда.
+  final String? email;
   String? accessToken;
   DateTime? expiry;
 
@@ -42,7 +50,29 @@ class GraphToken {
       clientId: m['client_id'] as String,
       tenant: (m['tenant'] as String?) ?? 'organizations',
       refreshToken: m['refresh_token'] as String,
+      email: email,
       accessToken: m['access_token'] as String?,
+    );
+  }
+
+  /// Сохраняет новый refresh-токен, выданный вместе с access-токеном.
+  ///
+  /// Без этого Calenfi ходил со стартовым токеном вечно: Entra держит прежний
+  /// ещё сутки после ротации, а потом отвечает `invalid_grant`, и аккаунт
+  /// «сам собой» отваливался примерно через день после входа.
+  Future<void> _keepRotatedRefreshToken(Object? fresh) async {
+    if (fresh is! String || fresh.isEmpty || fresh == refreshToken) return;
+    refreshToken = fresh;
+    final key = email;
+    if (key == null) return;
+    await SecretStore.instance.write(
+      secretKey(key),
+      jsonEncode({
+        'client_id': clientId,
+        'tenant': tenant,
+        'access_token': accessToken,
+        'refresh_token': refreshToken,
+      }),
     );
   }
 
@@ -73,6 +103,7 @@ class GraphToken {
     accessToken = at;
     final ttl = (data['expires_in'] as num?)?.toInt() ?? 3600;
     expiry = DateTime.now().add(Duration(seconds: ttl));
+    await _keepRotatedRefreshToken(data['refresh_token']);
     return accessToken!;
   }
 }

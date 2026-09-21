@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12] — 2026-09-21
+
+### Fixed
+- An Office 365 account stopped syncing with `invalid_grant` about a day after
+  every sign-in. Entra issues a fresh refresh token on every refresh and
+  retires the previous one roughly 24 hours later; Calenfi kept using the one
+  it was first given and never stored the new one. A rotated refresh token is
+  now accepted and written back to the keyring, for Microsoft and for Google
+  alike.
+
 ## [0.3.11] — 2026-09-21
 
 ### Added
