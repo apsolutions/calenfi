@@ -32,7 +32,10 @@ class EventEditor {
     return showDialog<void>(
       context: context,
       builder: (ctx) {
-        final narrow = MediaQuery.of(ctx).size.width < 520;
+        // Низкое окно — тоже «телефон»: на внешнем экране складного телефона
+        // в альбомной ориентации (960×411) окну высотой 660 не хватает места.
+        final size = MediaQuery.sizeOf(ctx);
+        final narrow = size.width < 520 || size.height < 560;
         final content = EventEditorScreen(
           existing: existing,
           initialDay: initialDay,

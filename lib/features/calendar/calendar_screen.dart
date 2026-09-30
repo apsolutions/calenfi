@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../app/keymap.dart';
 import '../../app/providers.dart';
+import '../../app/window_class.dart';
 import '../../l10n/app_localizations.dart';
 import '../../domain/models/calendar_event.dart';
 import '../../domain/models/merged_event.dart';
@@ -26,6 +27,19 @@ final ButtonStyle _compactIconStyle = IconButton.styleFrom(
   padding: const EdgeInsets.all(6),
   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
+
+/// С этой ширины панель ожидающих правок встаёт в строку топ-бара. Десктопная
+/// строка без неё занимает около 780 точек, с ней и со счётчиком сбоя синка —
+/// около 990, и полю поиска тоже нужно место.
+const double _pendingInlineMinWidth = 1200;
+
+/// Ниже этой ширины (плавающее окно, узкая половина разделённого экрана) в
+/// статусе синка и на кнопке отмены правок остаётся только значок.
+const double _syncTextMinWidth = 360;
+
+/// Ниже этой ширины переключателю видов на среднем экране хватает места только
+/// на подписи из одной буквы.
+const double _fullLabelsMinWidth = 700;
 
 /// Тонкая полоса «идёт синхронизация» — календарь показан сразу из кэша,
 /// а синк крутится в фоне (без блокирующей шестерни).
@@ -73,7 +87,12 @@ class _MoveModeHint extends StatelessWidget {
 /// и переключателем сортировки (по релевантности / по дате). Живёт в середине
 /// верхней панели (десктоп). Результат по клику открывает карточку события.
 class _EventSearch extends ConsumerStatefulWidget {
-  const _EventSearch();
+  const _EventSearch({this.autofocus = false});
+
+  /// Сразу поставить курсор в поле: на среднем экране поиск открывается
+  /// отдельной кнопкой, и второй тап по полю был бы лишним.
+  final bool autofocus;
+
   @override
   ConsumerState<_EventSearch> createState() => _EventSearchState();
 }
@@ -179,6 +198,7 @@ class _EventSearchState extends ConsumerState<_EventSearch> {
           child: TextField(
             controller: _controller,
             focusNode: _focus,
+            autofocus: widget.autofocus,
             textInputAction: TextInputAction.search,
             style: const TextStyle(fontSize: 14),
             onTap: () {
@@ -389,11 +409,21 @@ class _PendingBar extends ConsumerWidget {
                   style:
                       TextStyle(fontSize: 13, color: cs.onTertiaryContainer)),
             ),
-            TextButton.icon(
-              onPressed: notifier.cancelAll,
-              icon: const Icon(Icons.undo, size: 16),
-              label: Text(L10n.of(context).calCancel),
-            ),
+            // В совсем узком окне подпись «Отменить» сжимала счётчик до
+            // столбика по три буквы — там остаётся только значок.
+            if (MediaQuery.sizeOf(context).width < _syncTextMinWidth)
+              IconButton(
+                style: _compactIconStyle,
+                onPressed: notifier.cancelAll,
+                tooltip: L10n.of(context).calCancel,
+                icon: Icon(Icons.undo, size: 18, color: cs.onTertiaryContainer),
+              )
+            else
+              TextButton.icon(
+                onPressed: notifier.cancelAll,
+                icon: const Icon(Icons.undo, size: 16),
+                label: Text(L10n.of(context).calCancel),
+              ),
             const SizedBox(width: 4),
             FilledButton.icon(
               onPressed: notifier.applyAll,
@@ -416,27 +446,50 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
-  bool _initedView = false;
+  /// Узким ли было окно при прошлой сборке (null — ещё не знаем).
+  bool? _wasCompact;
+
+  /// Вид, на котором пользователь остановился на узком и на широком экране.
+  /// Складной телефон — это два экрана у одного приложения: на внешнем
+  /// удобен день, на внутреннем неделя, и у каждого своя память.
+  final Map<bool, CalendarViewMode> _modeOf = {};
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // На телефоне по умолчанию — дневной вид (недельная сетка слишком тесная).
-    if (!_initedView) {
-      _initedView = true;
-      if (MediaQuery.of(context).size.width < 600) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            ref.read(viewModeProvider.notifier).state = CalendarViewMode.day;
-          }
-        });
-      }
+    final compact = windowClassOf(context) == WindowClass.compact;
+    final was = _wasCompact;
+    if (was == compact) return;
+    _wasCompact = compact;
+
+    final current = ref.read(viewModeProvider);
+    CalendarViewMode target;
+    if (was == null) {
+      // На телефоне по умолчанию — дневной вид (недельная сетка слишком
+      // тесная).
+      target = compact ? CalendarViewMode.day : current;
+    } else if (isMobilePlatform) {
+      // Телефон раскрыли или сложили (либо окно поделили пополам): вид,
+      // выбранный на одном экране, не годится для другого. День на 750 точек
+      // — это одна пустая колонка, неделя на 411 — семь нечитаемых. На
+      // десктопе окно тянут мышью, там вид не трогаем.
+      _modeOf[was] = current;
+      target = _modeOf[compact] ??
+          (compact ? CalendarViewMode.day : CalendarViewMode.week);
+    } else {
+      return;
     }
+    if (target == current) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(viewModeProvider.notifier).state = target;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final mode = ref.watch(viewModeProvider);
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < kMediumMinWidth;
     return CalenfiKeymap(
       child: Scaffold(
         body: SafeArea(
@@ -445,19 +498,18 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               const _TopBar(),
               const AccountHealthBanner(),
               const _SyncIndicator(),
-              // Панель ожидающих отправки правок отдельной полосой — ТОЛЬКО на
-              // узких экранах (< 720). На широких она инлайн в топ-баре и не
-              // ресайзит сетку.
-              if (MediaQuery.of(context).size.width < 720 &&
+              // Панель ожидающих отправки правок отдельной полосой — везде, где
+              // она не помещается в топ-бар. На широком десктопе она инлайн и
+              // не ресайзит сетку.
+              if (width < _pendingInlineMinWidth &&
                   ref.watch(pendingEditsProvider).isNotEmpty)
                 const _PendingBar(),
               // Баннер-подсказка только на телефоне; на десктопе не нужен.
-              if (ref.watch(moveModeProvider) &&
-                  MediaQuery.of(context).size.width < 600)
+              if (ref.watch(moveModeProvider) && compact)
                 const _MoveModeHint(),
               // Дата целиком — отдельной строкой, только на телефоне: в
               // топ-баре там на неё не хватает ширины.
-              if (MediaQuery.of(context).size.width < 600) ...[
+              if (compact) ...[
                 const PeriodLine(),
               ],
               const Divider(height: 1),
@@ -550,7 +602,10 @@ class _SwipePeriod extends ConsumerWidget {
 /// Всегда видимое время последней синхронизации + жирный красный «!», если
 /// какой-то календарь не синхронизировался. Тап — запустить синк.
 class _SyncStatus extends ConsumerWidget {
-  const _SyncStatus();
+  const _SyncStatus({this.iconOnly = false});
+
+  /// Только значок (и «!» при сбое), без времени: для совсем узкого окна.
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -628,12 +683,14 @@ class _SyncStatus extends ConsumerWidget {
                       size: 20,
                       color: color),
             ),
-            const SizedBox(width: 3),
-            Text(statusText,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: color,
-                    fontWeight: ok ? FontWeight.w600 : null)),
+            if (!iconOnly) ...[
+              const SizedBox(width: 3),
+              Text(statusText,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: color,
+                      fontWeight: ok ? FontWeight.w600 : null)),
+            ],
             if (warn)
               const Padding(
                 padding: EdgeInsets.only(left: 2),
@@ -660,22 +717,59 @@ class _SyncStatus extends ConsumerWidget {
   }
 }
 
-class _TopBar extends ConsumerWidget {
+class _TopBar extends ConsumerStatefulWidget {
   const _TopBar();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TopBar> createState() => _TopBarState();
+}
+
+class _TopBarState extends ConsumerState<_TopBar> {
+  /// Средний экран: строка занята полем поиска вместо обычных кнопок.
+  bool _searching = false;
+
+  @override
+  Widget build(BuildContext context) {
     final mode = ref.watch(viewModeProvider);
     final showCancelled = ref.watch(showCancelledProvider);
     final showMonth = ref.watch(showMonthViewProvider);
+    final width = MediaQuery.sizeOf(context).width;
+    final windowClass = windowClassForWidth(width);
     // На узком экране (телефон) убираем стрелки (листание — свайпом) и
     // сокращаем подписи, чтобы переключатель видов влезал.
-    final narrow = MediaQuery.of(context).size.width < 600;
+    final narrow = windowClass == WindowClass.compact;
+    // Средний экран (внутренний экран складного телефона): стрелки остаются,
+    // а поле поиска и «Сегодня» сворачиваются в значки. Десктопная строка на
+    // 750 точках не помещалась, и кнопка настроек уезжала за край.
+    final medium = windowClass == WindowClass.medium;
+    if (!medium) _searching = false;
     // Панель ожидающих правок показываем ИНЛАЙН в топ-баре (между датой и
     // Д/Н/М), только когда ширины хватает — иначе она уезжает отдельной полосой
     // (см. CalendarScreen) и не ресайзит сетку на десктопе.
-    final wideForPending = MediaQuery.of(context).size.width >= 720;
+    final wideForPending = width >= _pendingInlineMinWidth;
     final pendingN = ref.watch(pendingEditsProvider).length;
+    final shortLabels = narrow || width < _fullLabelsMinWidth;
+
+    if (_searching) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
+            children: [
+              IconButton(
+                style: _compactIconStyle,
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: () => setState(() => _searching = false),
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: 4),
+              const Expanded(child: _EventSearch(autofocus: true)),
+            ],
+          ),
+        ),
+      );
+    }
 
     // Если месяц скрыт, а сейчас выбран месяц — мягко переключаемся на неделю.
     final selectedMode =
@@ -706,18 +800,18 @@ class _TopBar extends ConsumerWidget {
       segments: [
         ButtonSegment(
             value: CalendarViewMode.day,
-            label: Text(narrow
+            label: Text(shortLabels
                 ? L10n.of(context).calDayShort
                 : L10n.of(context).calDay)),
         ButtonSegment(
             value: CalendarViewMode.week,
-            label: Text(narrow
+            label: Text(shortLabels
                 ? L10n.of(context).calWeekShort
                 : L10n.of(context).calWeek)),
         if (showMonth)
           ButtonSegment(
               value: CalendarViewMode.month,
-              label: Text(narrow
+              label: Text(shortLabels
                   ? L10n.of(context).calMonthShort
                   : L10n.of(context).calMonth)),
       ],
@@ -727,10 +821,44 @@ class _TopBar extends ConsumerWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
+      // В окне уже 360 точек кнопке «сегодня» не хватало двух точек, и она
+      // уходила под переключатель видов.
+      padding: EdgeInsets.symmetric(
+          horizontal: width < _syncTextMinWidth ? 4 : 8, vertical: 8),
+      // На среднем экране высота строки совпадает с высотой строки поиска,
+      // чтобы сетка под панелью не прыгала при его открытии.
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: medium ? 48 : 0),
+        child: Row(
         children: [
-          if (narrow)
+          if (medium) ...[
+            IconButton(
+                style: _compactIconStyle,
+                onPressed: () => shiftFocused(ref, -1),
+                icon: const Icon(Icons.chevron_left)),
+            IconButton(
+              style: _compactIconStyle,
+              onPressed: () => goToday(ref),
+              tooltip: L10n.of(context).calToday,
+              icon: const Icon(Icons.today_outlined),
+            ),
+            IconButton(
+                style: _compactIconStyle,
+                onPressed: () => shiftFocused(ref, 1),
+                icon: const Icon(Icons.chevron_right)),
+            const SizedBox(width: 6),
+            // Единственный Expanded: лишнюю ширину забирает дата, а при
+            // нехватке она же и сокращается, не выталкивая кнопки за край.
+            const Expanded(child: _PeriodTitle()),
+            IconButton(
+              key: const ValueKey('top-bar-search'),
+              style: _compactIconStyle,
+              tooltip: MaterialLocalizations.of(context).searchFieldLabel,
+              onPressed: () => setState(() => _searching = true),
+              icon: const Icon(Icons.search),
+            ),
+            const SizedBox(width: 4),
+          ] else if (narrow)
             // Дата уехала в отдельную строку под топ-баром (PeriodLine), здесь
             // от неё оставалось «ПН, 2…». Освободившуюся ширину забирает
             // переключатель видов, а возврат к сегодняшнему дню — кнопкой.
@@ -768,7 +896,7 @@ class _TopBar extends ConsumerWidget {
           if (wideForPending && pendingN > 0) const _PendingInline(),
           switcher,
           const SizedBox(width: 4),
-          const _SyncStatus(),
+          _SyncStatus(iconOnly: width < _syncTextMinWidth),
           // Быстрый переключатель «открепить встречи» (перенос перетаскиванием).
           // Только на мобиле: на десктопе «закреп» не нужен (нет ложных нажатий),
           // режим перетаскивания/ресайза включён по умолчанию, тумблер скрыт.
@@ -787,9 +915,10 @@ class _TopBar extends ConsumerWidget {
                 selectedIcon: const Icon(Icons.open_with),
               );
             }),
-          if (!narrow) ...[
+          if (!narrow && !medium) ...[
             // Склейка дублей из разных календарей: отжать — и каждая встреча
-            // показывается отдельно (можно работать с каждой копией).
+            // показывается отдельно (можно работать с каждой копией). На
+            // телефоне и на среднем экране оба тумблера живут в Настройках.
             Builder(builder: (_) {
               final combine = ref.watch(combineProvider);
               return IconButton(
@@ -816,6 +945,7 @@ class _TopBar extends ConsumerWidget {
           ],
           menu,
         ],
+        ),
       ),
     );
   }
@@ -895,7 +1025,8 @@ class _PeriodTitle extends ConsumerWidget {
     // сеткой там больше не рисуем), и она обязана помещаться целиком:
     // приписка «Сегодня · » обрезала её до «ПН, 2…». Сегодняшний день
     // помечаем цветом и насыщенностью, а не словом.
-    final narrow = MediaQuery.of(context).size.width < 600;
+    // На среднем экране строка тоже тесная: слово убираем, цвет оставляем.
+    final narrow = windowClassOf(context) != WindowClass.expanded;
     String text;
     switch (mode) {
       case CalendarViewMode.day:

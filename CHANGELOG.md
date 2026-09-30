@@ -6,6 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.14] — 2026-10-01
+
+### Added
+- Foldable phones. A Galaxy Z Fold 7 gives one app two screens: a 411-point
+  cover screen and a 750-point inner screen. The inner screen now has its own
+  top bar: arrows, a "today" button and the period title on the left, search
+  behind a magnifier button that turns the whole row into the search field,
+  then the view switcher, sync status and settings.
+- Each screen remembers its own view. Unfolding the phone switches to the week
+  (or to whatever was last used on the inner screen), folding it back returns
+  to the day. Desktop windows are left alone when resized.
+
+### Fixed
+- On the inner screen of a foldable the desktop top bar did not fit: the search
+  field shrank to nothing and the settings button slid off the right edge, so
+  accounts could not be reached at all. With unsent edits and a failed account
+  the row was 240 points too wide.
+- Unsent edits were shown inside the top bar from a width of 720 points, where
+  there is no room for them. They now move into the bar only from 1200 points
+  and stay on their own strip below that.
+- The home-screen widget could not be stretched beyond 360 points, half the
+  width of a foldable's inner home screen. The limit is gone.
+- The event editor opened as a 660-point-tall window on a screen 411 points
+  tall (the cover screen held sideways). Low screens get the full-screen editor.
+- In a window narrower than 360 points (pop-up view) the "today" button slid
+  under the view switcher and the unsent-edits counter wrapped into a column
+  three letters wide.
+
 ## [0.3.13] — 2026-09-30
 
 ### Fixed
