@@ -84,5 +84,45 @@ void main() {
       expect(groups.length, 1);
       expect(groups.first.sources.length, 3);
     });
+    test('вхождения одной серии с общим UID не склеиваются между собой', () {
+      // У всех вхождений повторяющейся серии один iCalendar UID. Виджет берёт
+      // диапазон на год вперёд: склейка по голому UID сворачивала серию в одну
+      // группу, и сегодняшнее вхождение пропадало из повестки.
+      final groups = engine.group([
+        for (var d = 0; d < 5; d++)
+          ev(
+            id: 'o365:$d',
+            title: 'Статус проекта',
+            start: t.add(Duration(days: 7 * d)),
+            uid: 'SERIES-1',
+            calendarId: 'work',
+          ),
+        for (var d = 0; d < 5; d++)
+          ev(
+            id: 'yandex:$d',
+            title: 'Статус проекта ',
+            start: t.add(Duration(days: 7 * d)),
+            uid: 'SERIES-1',
+            calendarId: 'personal',
+          ),
+      ]);
+      expect(groups.length, 5);
+      for (final g in groups) {
+        expect(g.sources.length, 2);
+        expect(
+          g.sources.map((e) => e.startUtc).toSet().length,
+          1,
+          reason: 'в группе только копии одного вхождения',
+        );
+      }
+    });
+
+    test('ежедневная серия с общим UID остаётся по дням', () {
+      final groups = engine.group([
+        for (var d = 0; d < 7; d++)
+          ev(id: 'daily:$d', title: 'Daily', start: t.add(Duration(days: d)), uid: 'DAILY'),
+      ]);
+      expect(groups.length, 7);
+    });
   });
 }

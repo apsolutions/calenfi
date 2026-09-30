@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/local/db/database_provider.dart';
@@ -67,7 +68,7 @@ final syncTriggerProvider = Provider<Future<void> Function()>((ref) {
 final periodicSyncProvider = Provider<void>((ref) {
   final engine = ref.read(syncEngineProvider);
   final accountsRepo = ref.read(accountRepositoryProvider);
-  final timer = Timer.periodic(const Duration(minutes: 1), (_) async {
+  Future<void> syncDue() async {
     final all = await accountsRepo.allAccounts();
     final now = DateTime.now().toUtc();
     for (final a in all) {
@@ -78,6 +79,23 @@ final periodicSyncProvider = Provider<void>((ref) {
         engine.syncAccount(a); // fire-and-forget, ошибки изолированы
       }
     }
+  }
+
+  final timer = Timer.periodic(const Duration(minutes: 1), (_) => syncDue());
+  // Android в энергосбережении отрезает сеть фоновым приложениям: фоновые
+  // попытки падают, и аккаунт висит «нет сети» со старыми встречами. При
+  // возврате на экран досинкиваем просроченное сразу, не ждём минутного тика.
+  // Короткая пауза — система снимает сетевой запрет чуть позже onResume.
+  Timer? resumeDelay;
+  final lifecycle = AppLifecycleListener(
+    onResume: () {
+      resumeDelay?.cancel();
+      resumeDelay = Timer(const Duration(seconds: 2), syncDue);
+    },
+  );
+  ref.onDispose(() {
+    timer.cancel();
+    resumeDelay?.cancel();
+    lifecycle.dispose();
   });
-  ref.onDispose(timer.cancel);
 });

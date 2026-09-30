@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13] — 2026-09-30
+
+### Fixed
+- The home-screen widget dropped occurrences of repeating meetings from
+  today's agenda. Duplicate detection treated a shared iCalendar UID as proof
+  of one meeting, but every occurrence of a series carries the same UID; over
+  the widget's year-long range a whole series collapsed into one group whose
+  representative fell on another day, so today's occurrence vanished. A shared
+  UID now joins copies only when their starts are less than 12 hours apart, so
+  the week and month views also keep each day of a daily series.
+- Opening the app after a while left accounts on "offline" with stale meetings
+  for up to a minute. Android battery saver cuts network access for apps in
+  the background, so background syncs fail; the app now syncs every overdue
+  account as soon as it returns to the screen instead of waiting for the
+  next one-minute tick.
+
 ## [0.3.12] — 2026-09-21
 
 ### Fixed

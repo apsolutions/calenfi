@@ -11,6 +11,10 @@ import '../domain/models/merged_event.dart';
 class DedupEngine {
   const DedupEngine();
 
+  /// Насколько далеко могут разойтись начала двух копий одного вхождения с
+  /// общим UID. Меньше суток, чтобы соседние дни ежедневной серии не слились.
+  static const _uidSameOccurrence = Duration(hours: 12);
+
   /// Группирует события в [MergedEvent]. Если [combine] == false — каждое
   /// событие остаётся отдельной «группой из одного» (FR-C11).
   List<MergedEvent> group(List<CalendarEvent> events, {bool combine = true}) {
@@ -23,20 +27,32 @@ class DedupEngine {
     final uf = _UnionFind(events.length);
 
     // Индексы по сигналам.
-    final byUid = <String, int>{};
+    final byUid = <String, List<int>>{};
     final byKey = <String, int>{};
     for (var i = 0; i < events.length; i++) {
       final e = events[i];
       final uid = e.providerUid;
       if (uid != null && uid.isNotEmpty) {
-        final j = byUid[uid];
-        if (j != null) uf.union(i, j);
-        byUid[uid] = i;
+        (byUid[uid] ??= []).add(i);
       }
       final key = _heuristicKey(e);
       final j = byKey[key];
       if (j != null) uf.union(i, j);
       byKey[key] = i;
+    }
+
+    // Общий UID — это одна встреча только в пределах одного вхождения: у всех
+    // вхождений повторяющейся серии UID одинаковый. Склеиваем копии, чьи
+    // начала ближе [_uidSameOccurrence] (перенесённая копия), но не соседние
+    // вхождения серии — иначе на широком диапазоне (виджет берёт год) серия
+    // сворачивается в одну группу и её вхождения пропадают.
+    for (final idx in byUid.values) {
+      if (idx.length < 2) continue;
+      idx.sort((a, b) => events[a].startUtc.compareTo(events[b].startUtc));
+      for (var k = 1; k < idx.length; k++) {
+        final gap = events[idx[k]].startUtc.difference(events[idx[k - 1]].startUtc);
+        if (gap < _uidSameOccurrence) uf.union(idx[k], idx[k - 1]);
+      }
     }
 
     // Собираем группы по корню union-find.
