@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.17] — 2026-10-01
+
+### Added
+- Background sync on Android. Android freezes an app about a minute after it
+  leaves the screen and cuts its network, so the in-app timer never ran in the
+  background: meetings were only as fresh as the last time Calenfi was open,
+  and the home-screen widget and reminders went stale with them. A system job
+  (WorkManager) now wakes the app every 15 minutes when there is a network,
+  syncs the accounts whose interval has passed, redraws the widget and
+  reschedules reminders. It is scheduled on launch, after an update and after
+  a reboot.
+
+### Fixed
+- Opening the app after a pause showed "not updated: no network" although the
+  account and the network were fine: a sync attempted while the app was frozen
+  in the background failed on DNS and was recorded as the account's status. A
+  "host not found" failure while the app is off screen no longer changes the
+  account status.
+- While a sync is running and no account has failed, the status in the top bar
+  shows the sync icon without the red "!" instead of "3/5 !".
+
 ## [0.3.16] — 2026-10-01
 
 ### Fixed

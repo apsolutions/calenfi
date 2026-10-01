@@ -31,7 +31,13 @@ QueryExecutor _openConnection() {
       targetDirectory: dir,
       legacyDirectories: legacyDirectories,
     );
-    return NativeDatabase.createInBackground(file);
+    // Фоновая синхронизация открывает базу вторым соединением из того же
+    // процесса. Без ожидания SQLite отвечает «database is locked» сразу, как
+    // только второе соединение держит транзакцию записи.
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (db) => db.execute('PRAGMA busy_timeout = 15000;'),
+    );
   });
 }
 

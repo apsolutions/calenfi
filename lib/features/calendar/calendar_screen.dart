@@ -666,41 +666,49 @@ class _SyncStatus extends ConsumerWidget {
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Во время синка — жёлтая «cloud_sync», чтобы было видно, что пошло.
-            StreamBuilder<int>(
-              stream: ref.read(syncEngineProvider).activeStream,
-              initialData: ref.read(syncEngineProvider).activeCount,
-              builder: (_, snap) => (snap.data ?? 0) > 0
-                  ? const Icon(Icons.cloud_sync,
-                      size: 20, color: Color(0xFFFFC400))
-                  : Icon(
-                      ok
-                          ? Icons.cloud_done_outlined
-                          : (failed ? Icons.sync_problem : Icons.sync),
-                      size: 20,
-                      color: color),
-            ),
-            if (!iconOnly) ...[
-              const SizedBox(width: 3),
-              Text(statusText,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: color,
-                      fontWeight: ok ? FontWeight.w600 : null)),
-            ],
-            if (warn)
-              const Padding(
-                padding: EdgeInsets.only(left: 2),
-                child: Text('!',
-                    style: TextStyle(
-                        color: Color(0xFFFF1744),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18)),
-              ),
-          ],
+        // Пока идёт синк и ни один аккаунт не в ошибке, отставание — не
+        // тревога, а работа: показываем жёлтый значок синка без «!». Иначе
+        // человек открывал приложение после паузы и видел «3/5 !», хотя
+        // данные как раз обновлялись.
+        child: StreamBuilder<int>(
+          stream: ref.read(syncEngineProvider).activeStream,
+          initialData: ref.read(syncEngineProvider).activeCount,
+          builder: (_, snap) {
+            final syncing = (snap.data ?? 0) > 0;
+            final calm = syncing && !failed;
+            final shownColor = calm ? const Color(0xFFFFC400) : color;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                syncing
+                    ? const Icon(Icons.cloud_sync,
+                        size: 20, color: Color(0xFFFFC400))
+                    : Icon(
+                        ok
+                            ? Icons.cloud_done_outlined
+                            : (failed ? Icons.sync_problem : Icons.sync),
+                        size: 20,
+                        color: color),
+                if (!iconOnly) ...[
+                  const SizedBox(width: 3),
+                  Text(statusText,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: shownColor,
+                          fontWeight: ok ? FontWeight.w600 : null)),
+                ],
+                if (warn && !calm)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 2),
+                    child: Text('!',
+                        style: TextStyle(
+                            color: Color(0xFFFF1744),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18)),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );

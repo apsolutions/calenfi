@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:isolate';
+import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,12 +29,33 @@ final providerRegistryProvider = Provider<ProviderRegistry>((ref) {
   return ProviderRegistry();
 });
 
+/// Имя порта, под которым живое приложение принимает просьбу фоновой задачи
+/// Android «синхронизируй просроченное» (см. `lib/background_sync.dart`).
+const kUiSyncPortName = 'ru.apsolutions.calenfi.ui-sync';
+
+/// Идёт фоновая задача Android: на её время система выдала приложению сеть,
+/// хотя оно не на экране.
+bool backgroundJobActive = false;
+
+/// Можно ли сейчас рассчитывать на сеть. На телефоне приложению в фоне её
+/// режут, и отказ «хост не найден» там ничего не говорит об аккаунте.
+bool _networkExpected() {
+  final mobile = defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+  if (!mobile || backgroundJobActive) return true;
+  final state = WidgetsBinding.instance.lifecycleState;
+  return state == null ||
+      state == AppLifecycleState.resumed ||
+      state == AppLifecycleState.inactive;
+}
+
 final syncEngineProvider = Provider<SyncEngine>((ref) {
   final engine = SyncEngine(
     registry: ref.watch(providerRegistryProvider),
     accounts: ref.watch(accountRepositoryProvider),
     events: ref.watch(eventRepositoryProvider),
     contacts: ref.watch(contactRepositoryProvider),
+    networkExpected: _networkExpected,
   );
   ref.onDispose(engine.dispose);
   return engine;
@@ -102,9 +126,33 @@ final periodicSyncProvider = Provider<void>((ref) {
       resumeDelay = Timer(const Duration(seconds: 2), syncDue);
     },
   );
+  // Фоновая задача Android будит процесс раз в 15 минут и просит живое
+  // приложение синхронизироваться: у него уже открыта база и собран движок.
+  final jobs = ReceivePort();
+  IsolateNameServer.removePortNameMapping(kUiSyncPortName);
+  IsolateNameServer.registerPortWithName(jobs.sendPort, kUiSyncPortName);
+  jobs.listen((message) async {
+    if (message is! SendPort) return;
+    message.send('ack');
+    backgroundJobActive = true;
+    DiagLog.instance.add('bg', 'фоновая задача: синхронизирую просроченное');
+    try {
+      await syncDue();
+      await ref.read(syncEngineProvider).whenIdle();
+      DiagLog.instance.add('bg', 'фоновая задача: готово');
+    } on Object catch (e, st) {
+      DiagLog.instance.error('bg', 'фоновая задача не удалась', e, st);
+    } finally {
+      backgroundJobActive = false;
+      message.send('done');
+    }
+  });
+
   ref.onDispose(() {
     timer.cancel();
     resumeDelay?.cancel();
     lifecycle.dispose();
+    IsolateNameServer.removePortNameMapping(kUiSyncPortName);
+    jobs.close();
   });
 });

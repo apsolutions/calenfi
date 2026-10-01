@@ -29,7 +29,10 @@ class NotificationService {
 
   /// Инициализация плагина, канала и запрос разрешения. Идемпотентно.
   /// Таймзоны инициализируются в main (`tzdata.initializeTimeZones`).
-  Future<void> init() async {
+  ///
+  /// [askPermission] = false — для фоновой синхронизации: экрана нет, и окно
+  /// с вопросом о разрешении показать некому.
+  Future<void> init({bool askPermission = true}) async {
     if (!_supported || _ready) return;
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -40,7 +43,7 @@ class NotificationService {
 
     final android13 = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    await android13?.requestNotificationsPermission();
+    if (askPermission) await android13?.requestNotificationsPermission();
     await android13?.createNotificationChannel(const AndroidNotificationChannel(
       _channelId,
       _channelName,
@@ -135,9 +138,10 @@ class NotificationService {
     DateTime now, {
     Duration horizon = const Duration(days: 7),
     int maxScheduled = 64,
+    bool askPermission = true,
   }) async {
     if (!_supported) return;
-    if (!_ready) await init();
+    if (!_ready) await init(askPermission: askPermission);
 
     await _plugin.cancelAll();
     final until = now.add(horizon);

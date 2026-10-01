@@ -9,6 +9,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
 
 import 'app/app.dart';
 import 'app/version.dart';
+import 'background_sync.dart';
 import 'data/local/db/database_location.dart';
 import 'data/secure/data_dir.dart';
 import 'data/secure/secret_store.dart';
@@ -59,3 +60,8 @@ void main() async {
   // после старта UI — иначе запрос разрешения завис бы до первого кадра.
   runApp(const ProviderScope(child: CalenfiApp()));
 }
+
+/// Фоновая синхронизация: эту функцию по имени запускает Android
+/// (BackgroundSyncWorker.kt). Должна жить в главной библиотеке приложения.
+@pragma('vm:entry-point')
+Future<void> calenfiBackgroundSync() => runBackgroundSyncEntrypoint();

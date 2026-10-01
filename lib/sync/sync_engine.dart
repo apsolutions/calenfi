@@ -39,7 +39,16 @@ class SyncEngine {
     ConferenceProvisioner? provisioner,
     this.softLimit = const Duration(seconds: 150),
     this.hardLimit = const Duration(minutes: 15),
+    this.networkExpected,
   }) : _provisioner = provisioner ?? ConferenceProvisioner();
+
+  /// Можно ли сейчас рассчитывать на сеть. null — всегда можно.
+  ///
+  /// На телефоне приложению в фоне система режет сеть: попытка синка падает
+  /// с «не удалось найти хост», хотя с аккаунтом и с интернетом всё в порядке.
+  /// Такой отказ не должен превращаться в статус «нет сети»: человек открывал
+  /// приложение и видел тревожный баннер, пока не пройдёт новый синк.
+  final bool Function()? networkExpected;
 
   final ProviderRegistry registry;
   final AccountRepository accounts;
@@ -140,6 +149,14 @@ class SyncEngine {
         return AccountSyncReport(acc.id, error: 'still running');
       },
     );
+  }
+
+  /// Завершается, когда не осталось ни одного идущего прохода. Нужна фоновой
+  /// задаче: движок без интерфейса нельзя гасить, пока синк не дописал базу.
+  Future<void> whenIdle() async {
+    while (_accountInFlight.isNotEmpty) {
+      await Future.wait(_accountInFlight.values.toList());
+    }
   }
 
   Future<AccountSyncReport> _runPass(Account acc) async {
@@ -267,6 +284,14 @@ class SyncEngine {
         : _isNetwork(lastErr)
         ? AccountStatus.offline
         : AccountStatus.syncError;
+    if (status == AccountStatus.offline &&
+        !(networkExpected?.call() ?? true)) {
+      DiagLog.instance.add(
+          'sync',
+          '${acc.id}: приложение в фоне, сети нет — статус аккаунта не трогаю '
+              '(${lastErr.runtimeType})');
+      return AccountSyncReport(acc.id, error: lastErr);
+    }
     DiagLog.instance.error(
         'sync',
         '${acc.id} (${acc.provider.name}, ${acc.email}): статус ${status.name}',

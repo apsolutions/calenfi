@@ -44,6 +44,10 @@ kotlin {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Фоновая синхронизация (BackgroundSyncWorker). Та же версия, что тянет
+    // плагин home_widget.
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.concurrent:concurrent-futures:1.1.0")
     testImplementation("junit:junit:4.13.2")
 }
 

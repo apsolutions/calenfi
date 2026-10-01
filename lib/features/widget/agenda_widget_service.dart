@@ -297,3 +297,15 @@ final agendaWidgetSyncProvider = Provider<void>((ref) {
   );
   ref.listen(calendarColorsProvider, (_, _) => pushNow());
 });
+
+/// Один раз перерисовывает домашний виджет из текущего состояния базы. Для
+/// фоновой синхронизации: приложения на экране нет, подписки не живут.
+Future<void> pushAgendaWidgetOnce(ProviderContainer container) async {
+  final events = await container.read(agendaSnapshotProvider.future);
+  final colors = await container.read(calendarColorsProvider.future);
+  await AgendaWidgetService.push(
+    events: events,
+    calendarColors: colors,
+    now: DateTime.now(),
+  );
+}

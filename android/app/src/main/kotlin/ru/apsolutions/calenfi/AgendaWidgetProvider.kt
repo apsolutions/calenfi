@@ -24,6 +24,13 @@ class AgendaWidgetProvider : AppWidgetProvider() {
         if (action != null && action in refreshActions) {
             refreshAll(context)
         }
+        // После обновления пакета и перезагрузки фоновая синхронизация должна
+        // встать сама, не дожидаясь, пока человек откроет приложение.
+        if (action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == Intent.ACTION_BOOT_COMPLETED
+        ) {
+            BackgroundSyncWorker.schedule(context)
+        }
     }
 
     override fun onUpdate(

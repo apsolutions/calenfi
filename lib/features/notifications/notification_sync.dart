@@ -36,3 +36,16 @@ final notificationSyncProvider = Provider<void>((ref) {
   ref.listen(upcomingEventsProvider, (_, _) => reschedule(), fireImmediately: true);
   ref.listen(calendarsListProvider, (_, _) => reschedule());
 });
+
+/// Один раз перепланирует напоминания из текущего состояния базы — для
+/// фоновой синхронизации, без запроса разрешения.
+Future<void> rescheduleNotificationsOnce(ProviderContainer container) async {
+  final events = await container.read(upcomingEventsProvider.future);
+  final cals = await container.read(calendarsListProvider.future);
+  await NotificationService.instance.sync(
+    events,
+    {for (final c in cals) c.id: c},
+    DateTime.now(),
+    askPermission: false,
+  );
+}
