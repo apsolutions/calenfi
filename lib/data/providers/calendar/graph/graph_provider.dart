@@ -79,35 +79,99 @@ class GraphProvider implements CalendarProvider {
     ];
   }
 
+  /// Вложения, уже полученные для версии события: ключ `id|changeKey`.
+  /// Между проходами синка повторно их не запрашиваем.
+  final Map<String, List<_AttachmentFile>> _attachmentCache = {};
+
+  /// Сколько запросов за вложениями идёт одновременно.
+  static const _attachmentParallelism = 4;
+
   @override
   Future<List<CalendarEvent>> fetchEvents(
       Account acc, Calendar cal, DateRange range) async {
     final out = <CalendarEvent>[];
+    // События с файлами: позиция в [out], ключ кэша и чей список запрашивать.
+    final withFiles = <({int index, String cacheKey, String ownerId})>[];
     // $select с body: без него calendarView отдаёт только bodyPreview (255
     // символов) → длинные ссылки (Telemost и т.п.) режутся. body.content —
     // полный текст, из него берём конференцию.
     const select =
-        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type,hasAttachments';
+        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type,hasAttachments,changeKey';
     String? url =
         '$_base/me/calendars/${_calId(cal)}/calendarView?startDateTime=${range.startUtc.toUtc().toIso8601String()}&endDateTime=${range.endUtc.toUtc().toIso8601String()}&\$select=$select&\$top=200';
     while (url != null) {
       final resp = await _dio.get(url, options: await _opts(utcTz: true));
       for (final e in (resp.data['value'] as List? ?? [])) {
         final map = e as Map<String, dynamic>;
-        var ev = _toEvent(acc, cal, map);
+        final ev = _toEvent(acc, cal, map);
         if (ev == null) continue;
-        // Файлы Exchange лежат отдельным ресурсом, и список тянем только у тех
-        // событий, у которых флаг hasAttachments: лишний запрос на каждое
-        // событие календаря был бы дорогим.
-        if (map['hasAttachments'] == true) {
-          ev = ev.copyWith(
-              attachments: await _attachments(map['id'] as String?, ev.webUrl));
+        final id = map['id'] as String?;
+        if (map['hasAttachments'] == true && id != null) {
+          // Файлы серии лежат у её мастера, а calendarView разворачивает серию
+          // в десятки вхождений: спрашиваем мастера один раз, а не каждое
+          // вхождение. У исключения из серии список свой.
+          final master = map['seriesMasterId'] as String?;
+          final owner =
+              map['type'] == 'occurrence' && master != null ? master : id;
+          withFiles.add((
+            index: out.length,
+            cacheKey: '$id|${map['changeKey']}',
+            ownerId: owner,
+          ));
         }
         out.add(ev);
       }
       url = resp.data['@odata.nextLink'] as String?;
     }
+    await _attachFiles(out, withFiles);
     return out;
+  }
+
+  /// Дописывает вложения событиям из [withFiles].
+  ///
+  /// Раньше список файлов запрашивался отдельным запросом на КАЖДОЕ событие с
+  /// флагом hasAttachments, по одному, на каждом проходе синка. В рабочем
+  /// календаре таких вхождений около двухсот: проход длился больше десяти
+  /// минут при лимите 150 секунд, и аккаунт считался сбойным. Теперь на
+  /// проход уходит один запрос на серию, несколько сразу, а полученное
+  /// переиспользуется, пока версия события не изменилась.
+  Future<void> _attachFiles(
+    List<CalendarEvent> out,
+    List<({int index, String cacheKey, String ownerId})> withFiles,
+  ) async {
+    final owners = <String>{
+      for (final w in withFiles)
+        if (!_attachmentCache.containsKey(w.cacheKey)) w.ownerId,
+    }.toList();
+    final fetched = <String, List<_AttachmentFile>?>{};
+    for (var i = 0; i < owners.length; i += _attachmentParallelism) {
+      final batch = owners.skip(i).take(_attachmentParallelism).toList();
+      final lists = await Future.wait(batch.map(_attachmentFiles));
+      for (var j = 0; j < batch.length; j++) {
+        fetched[batch[j]] = lists[j];
+      }
+    }
+    for (final w in withFiles) {
+      var files = _attachmentCache[w.cacheKey];
+      if (files == null) {
+        files = fetched[w.ownerId];
+        // Не удалось получить список — не запоминаем: спросим в следующий раз.
+        if (files == null) continue;
+        _attachmentCache[w.cacheKey] = files;
+      }
+      final ev = out[w.index];
+      out[w.index] = ev.copyWith(attachments: [
+        for (final f in files)
+          Attachment(
+            // Скачать файл по ссылке без заголовка авторизации нельзя,
+            // поэтому ведём на само событие в Outlook Web.
+            uri: ev.webUrl ?? '$_base/me/events/${w.ownerId}/attachments',
+            fileName: f.name,
+            mimeType: f.contentType,
+            sizeBytes: f.size,
+          ),
+      ]);
+    }
   }
 
   @override
@@ -132,28 +196,25 @@ class GraphProvider implements CalendarProvider {
     return _toEvent(acc, cal, resp.data as Map<String, dynamic>) ?? e;
   }
 
-  /// Имена вложений события. Скачать файл по ссылке без заголовка
-  /// авторизации нельзя, поэтому ведём на само событие в Outlook Web —
-  /// оттуда файл и забирается.
-  Future<List<Attachment>> _attachments(String? eventId, String? webUrl) async {
-    if (eventId == null) return const [];
+  /// Имена вложений события [eventId]. null — список получить не удалось.
+  Future<List<_AttachmentFile>?> _attachmentFiles(String eventId) async {
     try {
       final resp = await _dio.get(
         '$_base/me/events/$eventId/attachments?\$select=name,contentType,size',
         options: await _opts(),
       );
+      if (resp.statusCode != 200 || resp.data is! Map) return null;
       return [
-        for (final a in (resp.data['value'] as List? ?? const []))
-          Attachment(
-            uri: webUrl ?? '$_base/me/events/$eventId/attachments',
-            fileName: (a as Map)['name'] as String?,
-            mimeType: a['contentType'] as String?,
-            sizeBytes: (a['size'] as num?)?.toInt(),
+        for (final a in ((resp.data as Map)['value'] as List? ?? const []))
+          _AttachmentFile(
+            name: (a as Map)['name'] as String?,
+            contentType: a['contentType'] as String?,
+            size: (a['size'] as num?)?.toInt(),
           ),
       ];
     } on DioException {
       // Нет прав на вложения или сеть моргнула — событие важнее списка файлов.
-      return const [];
+      return null;
     }
   }
 
@@ -419,4 +480,12 @@ class GraphProvider implements CalendarProvider {
     final rgb = int.tryParse(hex.substring(1, 7), radix: 16);
     return rgb == null ? 0xFF7719AA : 0xFF000000 | rgb;
   }
+}
+
+/// Файл, приложенный к событию Exchange: то, что отдаёт Graph в списке.
+class _AttachmentFile {
+  const _AttachmentFile({this.name, this.contentType, this.size});
+  final String? name;
+  final String? contentType;
+  final int? size;
 }

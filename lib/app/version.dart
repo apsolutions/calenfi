@@ -2,4 +2,4 @@
 ///
 /// Совпадает с `version` в pubspec.yaml (без номера сборки): это проверяет
 /// `test/app_version_test.dart`, чтобы при выпуске не забыть одно из двух.
-const String kAppVersion = '0.3.15';
+const String kAppVersion = '0.3.16';

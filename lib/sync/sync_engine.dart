@@ -37,6 +37,8 @@ class SyncEngine {
     required this.events,
     this.contacts,
     ConferenceProvisioner? provisioner,
+    this.softLimit = const Duration(seconds: 150),
+    this.hardLimit = const Duration(minutes: 15),
   }) : _provisioner = provisioner ?? ConferenceProvisioner();
 
   final ProviderRegistry registry;
@@ -105,35 +107,51 @@ class SyncEngine {
     }
   }
 
-  /// Синки одного аккаунта, идущие прямо сейчас — чтобы ручной refresh и
-  /// периодический тик не запускали один и тот же аккаунт параллельно
-  /// (гонка reconcile → мигание событий).
+  /// Проходы синхронизации, идущие прямо сейчас, по одному на аккаунт. Пока
+  /// проход не закончился по-настоящему, новый для того же аккаунта не
+  /// запускается: ручной refresh и минутный тик присоединяются к идущему.
   final Map<String, Future<AccountSyncReport>> _accountInFlight = {};
 
-  /// Обёртка с учётом «идёт синхронизация» (для индикатора в UI) и защитой от
-  /// параллельного синка одного и того же аккаунта.
+  /// Сколько вызывающий ждёт проход. Дольше — получает отчёт «ещё идёт», а
+  /// проход продолжается в фоне (иначе один медленный аккаунт держал бы
+  /// `syncAll` и остальные аккаунты).
+  final Duration softLimit;
+
+  /// После этого срока проход считается зависшим: аккаунт получает статус
+  /// ошибки, и следующий вызов запустит новый проход.
+  final Duration hardLimit;
+
+  /// Синхронизация аккаунта с учётом «идёт синхронизация» (для индикатора в
+  /// UI) и защитой от параллельных проходов одного аккаунта.
+  ///
+  /// Раньше лимит в 150 секунд снимал защиту, хотя сам проход продолжал
+  /// работать: каждую минуту к нему добавлялся ещё один, они делили сеть и
+  /// замедляли друг друга, а аккаунт показывал «превышен лимит времени», пока
+  /// какой-нибудь из них не доходил до конца.
   Future<AccountSyncReport> syncAccount(Account acc) {
-    // ВАЖНО: тело — блок, а не `=> _accountInFlight.remove(...)`. Стрелка вернула
-    // бы результат Map.remove() — а это и есть сама завершающаяся Future, и
-    // whenComplete стал бы ждать её же → самодедлок (Future ждёт саму себя).
-    return _accountInFlight[acc.id] ??= _syncAccountTracked(acc).whenComplete(
-      () {
-        _accountInFlight.remove(acc.id);
+    final pass = _accountInFlight[acc.id] ??= _runPass(acc);
+    return pass.timeout(
+      softLimit,
+      onTimeout: () {
+        DiagLog.instance.add(
+            'sync',
+            '${acc.id}: идёт дольше ${softLimit.inSeconds} с, '
+                'продолжается в фоне');
+        return AccountSyncReport(acc.id, error: 'still running');
       },
     );
   }
 
-  Future<AccountSyncReport> _syncAccountTracked(Account acc) async {
+  Future<AccountSyncReport> _runPass(Account acc) async {
     _setActive(1);
     try {
-      // Предохранитель: синк одного аккаунта не может висеть вечно (иначе он
-      // блокировал бы syncAll и держал per-account гард). Таймауты dio/curl
-      // ограничивают отдельные запросы, этот — весь проход.
       return await _syncAccount(acc).timeout(
-        const Duration(seconds: 150),
+        hardLimit,
         onTimeout: () async {
           DiagLog.instance.add(
-              'sync', '${acc.id}: проход не уложился в 150 секунд, прерван');
+              'sync',
+              '${acc.id}: проход не закончился за ${hardLimit.inMinutes} мин, '
+                  'считаю зависшим');
           await accounts.recordSyncFailure(
             acc.id,
             AccountStatus.syncError,
@@ -144,6 +162,9 @@ class SyncEngine {
       );
     } finally {
       _setActive(-1);
+      // Отдельной строкой, а не `=> _accountInFlight.remove(...)` в
+      // whenComplete: remove() вернул бы саму эту Future, и она ждала бы себя.
+      final _ = _accountInFlight.remove(acc.id);
     }
   }
 

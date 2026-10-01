@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16] — 2026-10-01
+
+### Fixed
+- An Office 365 account kept failing with "sync exceeded the time limit" and
+  showed stale meetings. Since attachments arrived in 0.3.11, every sync pass
+  asked Graph for the file list of each occurrence flagged `hasAttachments`,
+  one request at a time. A weekly series with a file, expanded a year ahead,
+  alone costs dozens of requests; a work calendar with about 190 such
+  occurrences needed 155 seconds per pass against a 150-second limit. A pass
+  now asks once per series (an exception still has its own list), runs a few
+  requests at a time and reuses the answer until the event changes. The same
+  account now syncs in about a minute, and later passes make no attachment
+  requests at all.
+- Sync passes piled up. The 150-second limit released the per-account guard
+  while the pass itself kept running, so the one-minute timer started another
+  pass on top of it, and another, each slowing the rest down. A pass now
+  holds the guard until it really ends: callers stop waiting after 150
+  seconds, the account is marked as failed only after 15 minutes, and the
+  sync indicator stays on while work is still going.
+- The diagnostics log no longer goes to the CLI's stdout, where it broke the
+  JSON answer of `calenfi sync`.
+
 ## [0.3.15] — 2026-10-01
 
 ### Added
