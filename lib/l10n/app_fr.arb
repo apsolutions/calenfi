@@ -238,5 +238,12 @@
   "uiReasonFailure": "échec",
   "uiReasonNeedsReconnect": "reconnexion",
   "uiReasonOffline": "hors ligne",
-  "uiRetry": "Réessayer"
+  "uiRetry": "Réessayer",
+  "setDiagnostics": "Diagnostic",
+  "setDiagLog": "Journal des événements et des erreurs",
+  "setDiagLogSubtitle": "Synchronisation, connexion et échecs avec le texte complet",
+  "diagCopy": "Copier le journal",
+  "diagCopied": "Journal copié",
+  "diagClear": "Effacer le journal",
+  "diagEmpty": "Le journal est vide"
 }

@@ -238,5 +238,12 @@
   "uiReasonFailure": "故障",
   "uiReasonNeedsReconnect": "重新连接",
   "uiReasonOffline": "无网络",
-  "uiRetry": "重试"
+  "uiRetry": "重试",
+  "setDiagnostics": "诊断",
+  "setDiagLog": "事件和错误日志",
+  "setDiagLogSubtitle": "同步、登录和故障的完整错误信息",
+  "diagCopy": "复制日志",
+  "diagCopied": "日志已复制",
+  "diagClear": "清空日志",
+  "diagEmpty": "日志为空"
 }

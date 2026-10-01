@@ -20,7 +20,9 @@ import 'package:calenfi/domain/models/enums.dart';
 import 'package:calenfi/domain/models/merged_event.dart';
 import 'package:calenfi/features/calendar/calendar_screen.dart';
 import 'package:calenfi/features/calendar/calendar_state.dart';
+import 'package:calenfi/features/calendar/day_view.dart';
 import 'package:calenfi/features/calendar/pending_edits.dart';
+import 'package:calenfi/features/calendar/time_grid.dart';
 import 'package:calenfi/features/event_editor/event_editor_screen.dart';
 import 'package:calenfi/l10n/app_localizations.dart';
 import 'package:calenfi/sync/sync_engine.dart';
@@ -61,11 +63,13 @@ class _StaticPending extends PendingEditsNotifier {
 /// Настоящий Roboto вместо тестового шрифта с квадратными глифами: иначе
 /// ширина подписей завышена в полтора раза и тест ловит переполнения,
 /// которых на устройстве нет.
+bool _realFonts = false;
+
 Future<void> _loadFonts() async {
   final root = Platform.environment['FLUTTER_ROOT'];
   if (root == null) return;
   final dir = Directory('$root/bin/cache/artifacts/material_fonts');
-  if (!dir.existsSync()) return;
+  if (!File('${dir.path}/Roboto-Regular.ttf').existsSync()) return;
   Future<ByteData> read(String name) async =>
       ByteData.sublistView(await File('${dir.path}/$name').readAsBytes());
   await (FontLoader('Roboto')
@@ -76,6 +80,15 @@ Future<void> _loadFonts() async {
   await (FontLoader('MaterialIcons')
         ..addFont(read('MaterialIcons-Regular.otf')))
       .load();
+  _realFonts = true;
+}
+
+/// Проверки «помещается ли» имеют смысл только с настоящим шрифтом. Если в
+/// кэше Flutter его нет, тест пропускается, а не падает на квадратных глифах.
+bool _skipWithoutFonts() {
+  if (_realFonts) return false;
+  markTestSkipped('нет Roboto в кэше Flutter: ширину подписей не проверить');
+  return true;
 }
 
 const _dpr = 2.625; // 420 dpi
@@ -151,11 +164,13 @@ void main() {
     addTearDown(tester.view.reset);
     debugDefaultTargetPlatformOverride = platform;
 
+    // Ошибки вёрстки первого кадра собираем сами, чтобы назвать их в отчёте.
+    // Перехват снимаем сразу после кадров: упавшая проверка при подменённом
+    // обработчике превращается в невнятное «тест не вернул FlutterError».
     layoutErrors = [];
     final previous = FlutterError.onError;
     FlutterError.onError =
         (d) => layoutErrors.add(d.exceptionAsString().split('\n').first);
-    addTearDown(() => FlutterError.onError = previous);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -191,6 +206,7 @@ void main() {
       ),
     );
     await frames(tester);
+    FlutterError.onError = previous;
   }
 
   /// Платформу возвращаем в конце тела теста: проверка инвариантов после
@@ -238,6 +254,7 @@ void main() {
         testWidgets(
             '${entry.key}, ${mode.name}${stress ? ', сбой синка и правки' : ''}: '
             'ничего не вылезает за край', (tester) async {
+          if (_skipWithoutFonts()) return;
           await pumpScreen(tester, entry.value,
               mode: mode, broken: stress, pending: stress ? 2 : 0);
           await shot('${entry.key}-${mode.name}${stress ? '-stress' : ''}');
@@ -256,6 +273,7 @@ void main() {
 
   testWidgets('внутренний экран: поиск открывается кнопкой и закрывается',
       (tester) async {
+    if (_skipWithoutFonts()) return;
     await pumpScreen(tester, _inner, mode: CalendarViewMode.week);
     expect(find.byType(TextField), findsNothing);
 
@@ -330,6 +348,7 @@ void main() {
 
   testWidgets('редактор: на низком экране во весь экран, на внутреннем — окном',
       (tester) async {
+    if (_skipWithoutFonts()) return;
     await pumpScreen(tester, _coverLandscape, mode: CalendarViewMode.week);
     await tester.tap(find.byType(FloatingActionButton));
     await frames(tester);
@@ -345,6 +364,39 @@ void main() {
     await shot('inner-portrait-editor');
     expect(tester.getSize(find.byType(EventEditorScreen)), const Size(480, 660));
     expect(layoutErrors, isEmpty);
+    restorePlatform();
+  });
+
+  // Жалоба: «просил писать в недельной вёрстке дату + день в одну строчку,
+  // чтобы не тратить место». Было два этажа на 56 точек: «ПН» над «28».
+  testWidgets('шапка недели: день и число одной строкой на обоих экранах',
+      (tester) async {
+    if (_skipWithoutFonts()) return;
+    for (final size in const [_cover, _inner]) {
+      await pumpScreen(tester, size);
+      // На узком экране приложение стартует с дня — неделю выбираем явно.
+      container.read(viewModeProvider.notifier).state = CalendarViewMode.week;
+      await frames(tester);
+      final cells = find.byType(DayHeaderCell);
+      expect(cells, findsNWidgets(7));
+      for (var i = 0; i < 7; i++) {
+        final texts = find.descendant(of: cells.at(i), matching: find.byType(Text));
+        expect(texts, findsNWidgets(2));
+        final weekday = tester.getRect(texts.at(0));
+        final number = tester.getRect(texts.at(1));
+        expect(weekday.right, lessThanOrEqualTo(number.left),
+            reason: 'число стоит правее дня недели, а не под ним');
+        expect((weekday.center.dy - number.center.dy).abs(), lessThan(3));
+      }
+      expect(find.text('ЧТ'), findsOneWidget);
+      // Вся строка с днями — 30 точек над сеткой.
+      final grid = tester.getTopLeft(find.byType(TimeGrid)).dy;
+      final header = tester.getTopLeft(cells.first).dy;
+      expect(grid - header, lessThan(kDayHeaderHeight + 2));
+      expect(layoutErrors, isEmpty);
+      await shot('week-header-${size == _cover ? 'cover' : 'inner'}');
+      await tester.pumpWidget(const SizedBox());
+    }
     restorePlatform();
   });
 

@@ -238,5 +238,12 @@
   "uiReasonFailure": "fallo",
   "uiReasonNeedsReconnect": "reconexión",
   "uiReasonOffline": "sin conexión",
-  "uiRetry": "Reintentar"
+  "uiRetry": "Reintentar",
+  "setDiagnostics": "Diagnóstico",
+  "setDiagLog": "Registro de eventos y errores",
+  "setDiagLogSubtitle": "Sincronización, inicio de sesión y fallos con el texto completo",
+  "diagCopy": "Copiar registro",
+  "diagCopied": "Registro copiado",
+  "diagClear": "Borrar registro",
+  "diagEmpty": "El registro está vacío"
 }

@@ -238,5 +238,12 @@
   "uiReasonFailure": "Fehler",
   "uiReasonNeedsReconnect": "Neuverbindung",
   "uiReasonOffline": "kein Netz",
-  "uiRetry": "Wiederholen"
+  "uiRetry": "Wiederholen",
+  "setDiagnostics": "Diagnose",
+  "setDiagLog": "Ereignis- und Fehlerprotokoll",
+  "setDiagLogSubtitle": "Synchronisierung, Anmeldung und Fehler im vollen Wortlaut",
+  "diagCopy": "Protokoll kopieren",
+  "diagCopied": "Protokoll kopiert",
+  "diagClear": "Protokoll leeren",
+  "diagEmpty": "Das Protokoll ist leer"
 }

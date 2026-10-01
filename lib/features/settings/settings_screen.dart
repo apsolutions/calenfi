@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/version.dart';
 import '../../app/locale_provider.dart';
 import '../../app/providers.dart';
 import '../../data/repositories/account_repository.dart';
@@ -11,6 +12,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/maps_service.dart';
 import '../accounts/accounts_screen.dart';
 import '../calendar/calendar_state.dart';
+import 'diag_log_screen.dart';
 
 /// Экран всех настроек. Подмножество настроек Fantastical
 /// (см. docs/fantastical-settings-reference.md), включая выбор активных
@@ -122,6 +124,18 @@ class SettingsPanel extends ConsumerWidget {
           ),
 
           const Divider(),
+          _SectionHeader(l10n.setDiagnostics),
+          ListTile(
+            key: const ValueKey('settings-diag-log'),
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: Text(l10n.setDiagLog),
+            subtitle: Text(l10n.setDiagLogSubtitle),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DiagLogScreen())),
+          ),
+
+          const Divider(),
           _SectionHeader(l10n.setLanguage),
           ListTile(
             leading: const Icon(Icons.language),
@@ -144,7 +158,7 @@ class SettingsPanel extends ConsumerWidget {
           const Divider(),
           _SectionHeader(l10n.setAbout),
           ListTile(
-            title: const Text('Calenfi'),
+            title: const Text('Calenfi $kAppVersion'),
             subtitle: Text(l10n.setAboutSubtitle),
           ),
         ],

@@ -824,4 +824,26 @@ class L10nEn extends L10n {
 
   @override
   String get uiRetry => 'Retry';
+
+  @override
+  String get setDiagnostics => 'Diagnostics';
+
+  @override
+  String get setDiagLog => 'Event and error log';
+
+  @override
+  String get setDiagLogSubtitle =>
+      'Sync, sign-in and failures with the full error text';
+
+  @override
+  String get diagCopy => 'Copy log';
+
+  @override
+  String get diagCopied => 'Log copied';
+
+  @override
+  String get diagClear => 'Clear log';
+
+  @override
+  String get diagEmpty => 'The log is empty';
 }

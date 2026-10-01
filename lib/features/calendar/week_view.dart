@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/merged_event.dart';
 import '../../l10n/app_localizations.dart';
 import 'calendar_state.dart';
+import 'day_view.dart';
 import 'time_grid.dart';
 
 /// Недельный вид (FR-V1).
@@ -39,46 +40,23 @@ class WeekView extends ConsumerWidget {
   }
 }
 
+/// Шапка недели: семь дней одной строкой, «ПН 28 · ВТ 29 · …».
 class _WeekHeader extends StatelessWidget {
   const _WeekHeader({required this.days});
   final List<DateTime> days;
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-    bool isToday(DateTime d) =>
-        d.year == today.year && d.month == today.month && d.day == today.day;
-    const ru = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
-
     return SizedBox(
-      height: 56,
+      height: kDayHeaderHeight,
       child: Row(
         children: [
           const SizedBox(width: kGutterWidth),
           for (final d in days)
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(ru[d.weekday - 1],
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: isToday(d)
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey)),
-                  const SizedBox(height: 2),
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: isToday(d)
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.transparent,
-                    child: Text('${d.day}',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: isToday(d) ? Colors.white : null)),
-                  ),
-                ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Center(child: DayHeaderCell(day: d)),
               ),
             ),
         ],

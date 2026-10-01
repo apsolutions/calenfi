@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -16,6 +17,8 @@ import '../../data/secure/oauth_flow.dart';
 import '../../data/secure/secret_store.dart';
 import '../../domain/models/account.dart';
 import '../../domain/models/enums.dart';
+import '../../services/diag_log.dart';
+import '../../services/notification_service.dart';
 
 /// OAuth-приложения, через которые аккаунт подключается входом в браузере.
 enum OAuthApp { google, microsoft, telemost }
@@ -35,11 +38,52 @@ class OAuthNotConfiguredException extends OAuthException {
 /// keyring, метаданные — в `accounts.json`, заводит аккаунт в БД и синкает.
 class ConnectAccountService {
   /// [launcher] открывает страницу входа; по умолчанию внешний браузер
-  /// (тесты подставляют свой).
-  ConnectAccountService(this.ref, {Future<bool> Function(Uri url)? launcher})
-      : _launcher = launcher ?? _launchExternal;
+  /// (тесты подставляют свой). [keepAliveStart] и [keepAliveStop] держат
+  /// процесс живым на время входа; по умолчанию это служба переднего плана
+  /// на Android и ничего на остальных платформах.
+  ConnectAccountService(
+    this.ref, {
+    Future<bool> Function(Uri url)? launcher,
+    Future<void> Function()? keepAliveStart,
+    Future<void> Function()? keepAliveStop,
+  })  : _launcher = launcher ?? _launchExternal,
+        _keepAliveStart =
+            keepAliveStart ?? NotificationService.instance.startLoginKeepAlive,
+        _keepAliveStop =
+            keepAliveStop ?? NotificationService.instance.stopLoginKeepAlive;
   final Ref ref;
   final Future<bool> Function(Uri url) _launcher;
+  final Future<void> Function() _keepAliveStart;
+  final Future<void> Function() _keepAliveStop;
+
+  /// Ссылка со страницы входа обратно в приложение (см. intent-filter
+  /// `login-done` в AndroidManifest). Только Android: на десктопе браузер и
+  /// приложение видны одновременно.
+  static const loginReturnUrl = 'ru.apsolutions.calenfi://login-done';
+
+  static String? get _returnUrl =>
+      defaultTargetPlatform == TargetPlatform.android ? loginReturnUrl : null;
+
+  /// Вход через браузер под защитой от заморозки процесса и с записью хода
+  /// в журнал диагностики.
+  @visibleForTesting
+  Future<OAuthResult> guardedLogin(
+    String what,
+    Future<OAuthResult> Function(String? returnUrl) flow,
+  ) async {
+    DiagLog.instance.add('login', '$what: начало входа');
+    await _keepAliveStart();
+    try {
+      final result = await flow(_returnUrl);
+      DiagLog.instance.add('login', '$what: токены получены');
+      return result;
+    } on Object catch (e, st) {
+      DiagLog.instance.error('login', '$what: вход не удался', e, st);
+      rethrow;
+    } finally {
+      await _keepAliveStop();
+    }
+  }
 
   static Future<bool> _launchExternal(Uri url) =>
       launchUrl(url, mode: LaunchMode.externalApplication);
@@ -137,14 +181,18 @@ class ConnectAccountService {
     final clientId = creds.googleClientId!;
     final clientSecret = creds.googleClientSecret!;
     final dio = Dio();
-    final res = await OAuthFlow(dio: dio).run(
-      authorizationEndpoint: _googleAuth,
-      tokenEndpoint: _googleToken,
-      clientId: clientId,
-      clientSecret: clientSecret,
-      scopes: _googleScopes,
-      extraAuthParams: const {'access_type': 'offline', 'prompt': 'consent'},
-      launch: _openBrowser,
+    final res = await guardedLogin(
+      'Google',
+      (back) => OAuthFlow(dio: dio).run(
+        authorizationEndpoint: _googleAuth,
+        tokenEndpoint: _googleToken,
+        clientId: clientId,
+        clientSecret: clientSecret,
+        scopes: _googleScopes,
+        extraAuthParams: const {'access_type': 'offline', 'prompt': 'consent'},
+        launch: _openBrowser,
+        returnUrl: back,
+      ),
     );
     if (res.refreshToken == null) {
       throw OAuthException(
@@ -179,17 +227,21 @@ class ConnectAccountService {
     final tenant = creds.graphTenant;
     final base = 'https://login.microsoftonline.com/$tenant/oauth2/v2.0';
     final dio = Dio();
-    final res = await OAuthFlow(dio: dio).run(
-      authorizationEndpoint: '$base/authorize',
-      tokenEndpoint: '$base/token',
-      clientId: clientId,
-      scopes: _graphScopes,
-      // При переподключении подсказываем тот же ящик, чтобы человек не выбирал
-      // его заново среди чужих учётных записей Microsoft.
-      extraAuthParams: expectEmail == null
-          ? const {'prompt': 'select_account'}
-          : {'prompt': 'select_account', 'login_hint': expectEmail},
-      launch: _openBrowser,
+    final res = await guardedLogin(
+      'Office 365',
+      (back) => OAuthFlow(dio: dio).run(
+        authorizationEndpoint: '$base/authorize',
+        tokenEndpoint: '$base/token',
+        clientId: clientId,
+        scopes: _graphScopes,
+        // При переподключении подсказываем тот же ящик, чтобы человек не
+        // выбирал его заново среди чужих учётных записей Microsoft.
+        extraAuthParams: expectEmail == null
+            ? const {'prompt': 'select_account'}
+            : {'prompt': 'select_account', 'login_hint': expectEmail},
+        launch: _openBrowser,
+        returnUrl: back,
+      ),
     );
     if (res.refreshToken == null) {
       throw OAuthException('Microsoft не выдал refresh-токен — повторите вход.');
@@ -224,13 +276,17 @@ class ConnectAccountService {
     final creds = CredentialSource.load();
     final clientId = creds.yandexClientId!;
     final clientSecret = creds.yandexClientSecret!;
-    final res = await OAuthFlow().run(
-      authorizationEndpoint: 'https://oauth.yandex.ru/authorize',
-      tokenEndpoint: 'https://oauth.yandex.ru/token',
-      clientId: clientId,
-      clientSecret: clientSecret,
-      scopes: const ['telemost-api:conferences.create'],
-      launch: _openBrowser,
+    final res = await guardedLogin(
+      'Yandex Telemost',
+      (back) => OAuthFlow().run(
+        authorizationEndpoint: 'https://oauth.yandex.ru/authorize',
+        tokenEndpoint: 'https://oauth.yandex.ru/token',
+        clientId: clientId,
+        clientSecret: clientSecret,
+        scopes: const ['telemost-api:conferences.create'],
+        launch: _openBrowser,
+        returnUrl: back,
+      ),
     );
     await SecretStore.instance.write('TELEMOST_OAUTH_TOKEN', res.accessToken);
   }

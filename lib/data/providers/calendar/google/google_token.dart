@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../../../../services/diag_log.dart';
 import '../../../secure/secret_store.dart';
 import '../token_exception.dart';
 
@@ -82,6 +83,11 @@ class GoogleToken {
     final at = data['access_token'];
     if (at is! String) {
       // refresh не удался: invalid_grant (протух/отозван) и т.п.
+      DiagLog.instance.add(
+          'token',
+          'Google ${email ?? ''}: обновление токена отклонено, HTTP '
+              '${resp.statusCode}, ${data['error']}: '
+              '${data['error_description']}');
       throw TokenExpiredException(
           'Google: ${data['error'] ?? 'refresh failed'} — переподключи аккаунт');
     }

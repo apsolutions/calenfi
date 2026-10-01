@@ -461,5 +461,12 @@
   "uiReasonFailure": "failure",
   "uiReasonNeedsReconnect": "reconnecting",
   "uiReasonOffline": "no network",
-  "uiRetry": "Retry"
+  "uiRetry": "Retry",
+  "setDiagnostics": "Diagnostics",
+  "setDiagLog": "Event and error log",
+  "setDiagLogSubtitle": "Sync, sign-in and failures with the full error text",
+  "diagCopy": "Copy log",
+  "diagCopied": "Log copied",
+  "diagClear": "Clear log",
+  "diagEmpty": "The log is empty"
 }

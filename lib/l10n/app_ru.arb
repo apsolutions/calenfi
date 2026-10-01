@@ -238,5 +238,12 @@
   "uiReasonFailure": "сбой",
   "uiReasonNeedsReconnect": "переподключение",
   "uiReasonOffline": "нет сети",
-  "uiRetry": "Повторить"
+  "uiRetry": "Повторить",
+  "setDiagnostics": "Диагностика",
+  "setDiagLog": "Журнал событий и ошибок",
+  "setDiagLogSubtitle": "Синхронизация, вход и сбои с полным текстом ошибок",
+  "diagCopy": "Скопировать журнал",
+  "diagCopied": "Журнал скопирован",
+  "diagClear": "Очистить журнал",
+  "diagEmpty": "Журнал пуст"
 }

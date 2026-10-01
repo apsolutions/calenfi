@@ -6,6 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15] — 2026-10-01
+
+### Added
+- A diagnostics log. Settings → Diagnostics → Event and error log shows what
+  the app did and where it failed: every sync attempt with the full error text
+  and the top of the stack, token refreshes rejected by Google or Microsoft
+  with the provider's own explanation, each step of a browser sign-in, app
+  lifecycle changes and unhandled errors. The log is kept in `calenfi.log`
+  next to the app data, can be copied in one tap, and never contains tokens,
+  codes or passwords. Until now a failed account left 200 characters of error
+  text and nothing else.
+- The page the browser shows after a sign-in has a **Back to Calenfi** button
+  on Android and tries to return to the app by itself.
+- The app version is shown in Settings → About.
+
+### Changed
+- The row of days above the week and day grids is one line now: "MON 28"
+  instead of the weekday stacked over the number. It takes 30 points instead
+  of 56, and the weekday follows the app language in the week view too.
+
+### Fixed
+- An account dropped back to "reconnect" a few minutes after a successful
+  sign-in and stayed that way until the app was restarted. Reconnecting
+  rebuilds the sync engine, but the background sync kept the engine it was
+  created with, together with the old (missing or revoked) credentials, and
+  overwrote the fresh status on its next run. Background sync now takes the
+  current engine every time.
+- Signing in on Android hung on the provider's last page ("Are you trying to
+  sign in to Calenfi?") when typing the password took more than about a
+  minute. The browser's answer is received by a local server inside the app,
+  and Android freezes an app that sits behind the browser. The app now holds a
+  foreground service for the duration of a sign-in, which keeps it running.
+
 ## [0.3.14] — 2026-10-01
 
 ### Added

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../domain/models/calendar.dart';
 import '../domain/models/calendar_event.dart';
 import '../domain/models/merged_event.dart';
+import 'diag_log.dart';
 
 /// Локальные уведомления-напоминания о начале встреч (FR-N).
 ///
@@ -47,6 +48,70 @@ class NotificationService {
       importance: Importance.max,
     ));
     _ready = true;
+  }
+
+  static const _loginChannelId = 'calenfi_login';
+  static const _loginNotificationId = 0x7fffff01;
+
+  /// Держит процесс приложения живым, пока человек входит в учётную запись
+  /// в браузере.
+  ///
+  /// Ответ браузера принимает локальный сервер внутри приложения. Android
+  /// замораживает приложение примерно через минуту после того, как поверх
+  /// открылся браузер, и страница «Вы пытаетесь войти в Calenfi?» висела,
+  /// пока человек не догадывался вернуться в приложение. Процесс со службой
+  /// переднего плана система не замораживает и не отрезает от сети.
+  ///
+  /// Возвращает false, если службу поднять не удалось: вход всё равно идёт,
+  /// просто без этой страховки.
+  Future<bool> startLoginKeepAlive() async {
+    if (!_supported) return false;
+    try {
+      if (!_ready) await init();
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return false;
+      await android.startForegroundService(
+        _loginNotificationId,
+        'Calenfi: вход в учётную запись',
+        'Завершите вход в браузере. Нажмите, чтобы вернуться в Calenfi.',
+        notificationDetails: const AndroidNotificationDetails(
+          _loginChannelId,
+          'Вход в учётную запись',
+          channelDescription:
+              'Показывается, пока идёт вход через браузер, чтобы система не '
+              'останавливала Calenfi',
+          importance: Importance.low,
+          priority: Priority.low,
+          ongoing: true,
+          onlyAlertOnce: true,
+        ),
+        startType: AndroidServiceStartType.startNotSticky,
+        foregroundServiceTypes: {
+          AndroidServiceForegroundType.foregroundServiceTypeDataSync,
+        },
+      );
+      DiagLog.instance.add('login', 'служба переднего плана запущена');
+      return true;
+    } on Object catch (e, st) {
+      DiagLog.instance
+          .error('login', 'службу переднего плана запустить не удалось', e, st);
+      return false;
+    }
+  }
+
+  /// Останавливает службу, запущенную [startLoginKeepAlive].
+  Future<void> stopLoginKeepAlive() async {
+    if (!_supported) return;
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.stopForegroundService();
+    } on Object catch (e, st) {
+      DiagLog.instance
+          .error('login', 'службу переднего плана остановить не удалось', e, st);
+    }
   }
 
   static void _onTap(NotificationResponse r) {

@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
+import '../../services/diag_log.dart';
+
 /// Результат OAuth-обмена: токены + сырой ответ token-endpoint'а.
 class OAuthResult {
   OAuthResult(this.accessToken, this.refreshToken, this.expiresIn, this.raw);
@@ -54,7 +56,9 @@ class OAuthFlow {
     Duration timeout = const Duration(minutes: 5),
     int? fixedPort,
     bool basicAuth = false,
+    String? returnUrl,
   }) async {
+    final host = Uri.parse(authorizationEndpoint).host;
     final verifier = _randomToken();
     final challenge =
         _b64url(sha256.convert(ascii.encode(verifier)).bytes);
@@ -81,13 +85,20 @@ class OAuthFlow {
         },
       );
 
+      DiagLog.instance.add('login',
+          '$host: жду ответ браузера на 127.0.0.1:${server.port}, открываю страницу входа');
       await launch(authUri);
 
-      final code = await _awaitRedirect(server, state).timeout(
+      final code =
+          await _awaitRedirect(server, state, returnUrl: returnUrl).timeout(
         timeout,
-        onTimeout: () =>
-            throw OAuthException('время ожидания входа истекло'),
+        onTimeout: () {
+          DiagLog.instance.add('login',
+              '$host: за ${timeout.inMinutes} мин браузер так и не вернул ответ');
+          throw OAuthException('время ожидания входа истекло');
+        },
       );
+      DiagLog.instance.add('login', '$host: браузер вернул код, меняю на токены');
 
       // Обмен кода. Zoom (basicAuth) хочет client_id:secret в заголовке Basic и
       // не в теле; Google/MS — client_secret/PKCE в теле.
@@ -117,6 +128,10 @@ class OAuthFlow {
           : <String, dynamic>{};
       final at = data['access_token'];
       if (at is! String) {
+        DiagLog.instance.add(
+            'login',
+            '$host: обмен кода отклонён, HTTP ${resp.statusCode}, '
+                '${data['error']}: ${data['error_description']}');
         throw OAuthException(
             'обмен кода не удался: ${data['error_description'] ?? data['error'] ?? resp.statusCode}');
       }
@@ -134,7 +149,8 @@ class OAuthFlow {
   /// Ждёт запрос на loopback с параметром `code`, отвечает страницей «можно
   /// закрыть вкладку» и возвращает код. Игнорирует посторонние запросы
   /// (favicon и т.п.).
-  Future<String> _awaitRedirect(HttpServer server, String state) async {
+  Future<String> _awaitRedirect(HttpServer server, String state,
+      {String? returnUrl}) async {
     await for (final req in server) {
       final q = req.uri.queryParameters;
       if (!q.containsKey('code') && !q.containsKey('error')) {
@@ -149,12 +165,23 @@ class OAuthFlow {
       req.response
         ..statusCode = 200
         ..headers.contentType = ContentType.html
-        ..write(_resultPage(ok
-            ? 'Готово! Вернитесь в Calenfi — вкладку можно закрыть.'
-            : 'Не удалось войти: ${err ?? 'неверный state'}. Вернитесь в Calenfi.'));
-      await req.response.close();
+        ..write(resultPage(
+            ok
+                ? 'Готово! Вернитесь в Calenfi — вкладку можно закрыть.'
+                : 'Не удалось войти: ${err ?? 'неверный state'}. Вернитесь в Calenfi.',
+            returnUrl: returnUrl));
+      try {
+        await req.response.close();
+      } on Object {
+        // Вкладку закрыли раньше, чем дошёл ответ: код уже у нас, вход это
+        // не отменяет.
+      }
 
-      if (err != null) throw OAuthException('провайдер вернул ошибку: $err');
+      if (err != null) {
+        DiagLog.instance.add('login',
+            'провайдер вернул ошибку: $err: ${q['error_description'] ?? ''}');
+        throw OAuthException('провайдер вернул ошибку: $err');
+      }
       if (q['state'] != state) throw OAuthException('несовпадение state (CSRF)');
       if (code == null) throw OAuthException('нет кода авторизации');
       return code;
@@ -162,10 +189,22 @@ class OAuthFlow {
     throw OAuthException('сервер закрыт до получения кода');
   }
 
-  static String _resultPage(String message) => '''
+  /// Страница, которую браузер показывает после входа.
+  ///
+  /// [returnUrl] — ссылка, открывающая само приложение (на телефоне). С ней на
+  /// странице есть кнопка «Вернуться в Calenfi», и страница пробует перейти
+  /// по ней сама: человеку не нужно догадываться, что делать с вкладкой.
+  static String resultPage(String message, {String? returnUrl}) {
+    final back = returnUrl == null
+        ? ''
+        : '''
+<p><a id="back" href="$returnUrl" style="display:inline-block; margin-top:16px; padding:14px 28px; border-radius:24px; background:#E53935; color:#fff; font-size:17px; text-decoration:none">Вернуться в Calenfi</a></p>
+<script>setTimeout(function () { window.location.href = "$returnUrl"; }, 600);</script>''';
+    return '''
 <!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Calenfi</title></head>
 <body style="font-family: -apple-system, system-ui, sans-serif; text-align:center; padding:48px; color:#222">
-<h2>Calenfi</h2><p style="font-size:16px">$message</p></body></html>''';
+<h2>Calenfi</h2><p style="font-size:16px">$message</p>$back</body></html>''';
+  }
 }

@@ -826,4 +826,26 @@ class L10nEs extends L10n {
 
   @override
   String get uiRetry => 'Reintentar';
+
+  @override
+  String get setDiagnostics => 'Diagnóstico';
+
+  @override
+  String get setDiagLog => 'Registro de eventos y errores';
+
+  @override
+  String get setDiagLogSubtitle =>
+      'Sincronización, inicio de sesión y fallos con el texto completo';
+
+  @override
+  String get diagCopy => 'Copiar registro';
+
+  @override
+  String get diagCopied => 'Registro copiado';
+
+  @override
+  String get diagClear => 'Borrar registro';
+
+  @override
+  String get diagEmpty => 'El registro está vacío';
 }

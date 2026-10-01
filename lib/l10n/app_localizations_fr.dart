@@ -828,4 +828,26 @@ class L10nFr extends L10n {
 
   @override
   String get uiRetry => 'Réessayer';
+
+  @override
+  String get setDiagnostics => 'Diagnostic';
+
+  @override
+  String get setDiagLog => 'Journal des événements et des erreurs';
+
+  @override
+  String get setDiagLogSubtitle =>
+      'Synchronisation, connexion et échecs avec le texte complet';
+
+  @override
+  String get diagCopy => 'Copier le journal';
+
+  @override
+  String get diagCopied => 'Journal copié';
+
+  @override
+  String get diagClear => 'Effacer le journal';
+
+  @override
+  String get diagEmpty => 'Le journal est vide';
 }

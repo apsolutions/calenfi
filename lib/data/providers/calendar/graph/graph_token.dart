@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../../../../services/diag_log.dart';
 import '../../../secure/secret_store.dart';
 import '../token_exception.dart';
 
@@ -97,6 +98,13 @@ class GraphToken {
     final data = resp.data as Map<String, dynamic>;
     final at = data['access_token'];
     if (at is! String) {
+      // Текст Entra (AADSTS…) объясняет причину: отозван, истёк, запрещён
+      // политикой. В карточке аккаунта остаётся только короткий код ошибки.
+      DiagLog.instance.add(
+          'token',
+          'Office 365 ${email ?? ''}: обновление токена отклонено, HTTP '
+              '${resp.statusCode}, ${data['error']}: '
+              '${data['error_description']}');
       throw TokenExpiredException(
           'O365: ${data['error'] ?? 'refresh failed'} — переподключи аккаунт');
     }

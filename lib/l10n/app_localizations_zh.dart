@@ -812,4 +812,25 @@ class L10nZh extends L10n {
 
   @override
   String get uiRetry => '重试';
+
+  @override
+  String get setDiagnostics => '诊断';
+
+  @override
+  String get setDiagLog => '事件和错误日志';
+
+  @override
+  String get setDiagLogSubtitle => '同步、登录和故障的完整错误信息';
+
+  @override
+  String get diagCopy => '复制日志';
+
+  @override
+  String get diagCopied => '日志已复制';
+
+  @override
+  String get diagClear => '清空日志';
+
+  @override
+  String get diagEmpty => '日志为空';
 }

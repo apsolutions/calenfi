@@ -838,4 +838,26 @@ class L10nRu extends L10n {
 
   @override
   String get uiRetry => 'Повторить';
+
+  @override
+  String get setDiagnostics => 'Диагностика';
+
+  @override
+  String get setDiagLog => 'Журнал событий и ошибок';
+
+  @override
+  String get setDiagLogSubtitle =>
+      'Синхронизация, вход и сбои с полным текстом ошибок';
+
+  @override
+  String get diagCopy => 'Скопировать журнал';
+
+  @override
+  String get diagCopied => 'Журнал скопирован';
+
+  @override
+  String get diagClear => 'Очистить журнал';
+
+  @override
+  String get diagEmpty => 'Журнал пуст';
 }

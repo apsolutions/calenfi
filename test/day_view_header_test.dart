@@ -51,10 +51,19 @@ void main() {
     for (final width in [280.0, 1000.0]) {
       await pumpHeader(tester, locale: const Locale('en'), width: width);
 
-      final weekday = find.byKey(const ValueKey('day-column-weekday'));
+      // День недели и число стоят одной строкой («WED 15»), и по центру
+      // колонки выровнена вся строка, а не одно из двух слов.
+      final cell = find.byKey(const ValueKey('day-column-cell'));
       final expectedColumnCenter = kGutterWidth + (width - kGutterWidth) / 2;
-      expect(tester.getCenter(weekday).dx, closeTo(expectedColumnCenter, 0.1));
-      expect(tester.getSize(find.byType(DayColumnHeader)).height, 56);
+      expect(tester.getCenter(cell).dx, closeTo(expectedColumnCenter, 0.1));
+      final weekday = find.byKey(const ValueKey('day-column-weekday'));
+      final number = find.byKey(const ValueKey('day-column-number'));
+      expect(tester.getCenter(weekday).dy,
+          closeTo(tester.getCenter(number).dy, 2));
+      expect(tester.getTopRight(weekday).dx,
+          lessThan(tester.getTopLeft(number).dx));
+      expect(tester.getSize(find.byType(DayColumnHeader)).height,
+          kDayHeaderHeight);
       expect(tester.takeException(), isNull);
     }
   });

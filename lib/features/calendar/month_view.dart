@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/merged_event.dart';
 import '../../l10n/app_localizations.dart';
+import '../../app/window_class.dart';
 import 'calendar_state.dart';
 import 'event_details_sheet.dart';
 
@@ -99,7 +100,7 @@ class _MonthCell extends ConsumerWidget {
     // Тап по свободному месту ячейки — это выбор дня. На телефоне в месячной
     // сетке видно только пару чипсов, поэтому там сразу открываем дневной вид;
     // на широком экране месяц информативен, и вид не меняем.
-    final narrow = MediaQuery.of(context).size.width < 600;
+    final narrow = windowClassOf(context) == WindowClass.compact;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {

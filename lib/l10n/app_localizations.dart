@@ -1538,6 +1538,48 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Retry'**
   String get uiRetry;
+
+  /// No description provided for @setDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostics'**
+  String get setDiagnostics;
+
+  /// No description provided for @setDiagLog.
+  ///
+  /// In en, this message translates to:
+  /// **'Event and error log'**
+  String get setDiagLog;
+
+  /// No description provided for @setDiagLogSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync, sign-in and failures with the full error text'**
+  String get setDiagLogSubtitle;
+
+  /// No description provided for @diagCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy log'**
+  String get diagCopy;
+
+  /// No description provided for @diagCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Log copied'**
+  String get diagCopied;
+
+  /// No description provided for @diagClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear log'**
+  String get diagClear;
+
+  /// No description provided for @diagEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'The log is empty'**
+  String get diagEmpty;
 }
 
 class _L10nDelegate extends LocalizationsDelegate<L10n> {

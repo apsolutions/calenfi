@@ -11,6 +11,7 @@ import '../data/repositories/contact_repository.dart';
 import '../data/repositories/event_repository.dart';
 import '../domain/models/account.dart';
 import '../domain/models/calendar.dart';
+import '../services/diag_log.dart';
 import '../sync/sync_engine.dart';
 
 final eventRepositoryProvider = Provider<EventRepository>((ref) {
@@ -26,12 +27,14 @@ final providerRegistryProvider = Provider<ProviderRegistry>((ref) {
 });
 
 final syncEngineProvider = Provider<SyncEngine>((ref) {
-  return SyncEngine(
+  final engine = SyncEngine(
     registry: ref.watch(providerRegistryProvider),
     accounts: ref.watch(accountRepositoryProvider),
     events: ref.watch(eventRepositoryProvider),
     contacts: ref.watch(contactRepositoryProvider),
   );
+  ref.onDispose(engine.dispose);
+  return engine;
 });
 
 final accountsStreamProvider = StreamProvider<List<Account>>((ref) {
@@ -66,10 +69,15 @@ final syncTriggerProvider = Provider<Future<void> Function()>((ref) {
 /// их интервал (`RefreshPolicy.effectiveInterval`; `manual` → не автосинкается).
 /// Watch'ить в корне App. Без неё календарь обновлялся только при старте/кнопке.
 final periodicSyncProvider = Provider<void>((ref) {
-  final engine = ref.read(syncEngineProvider);
-  final accountsRepo = ref.read(accountRepositoryProvider);
   Future<void> syncDue() async {
-    final all = await accountsRepo.allAccounts();
+    // Движок и репозиторий читаем на каждом тике, а не один раз при создании.
+    // Переподключение аккаунта пересоздаёт реестр провайдеров и движок; если
+    // держать здесь прежний движок, фоновый синк продолжит ходить со старыми
+    // учётными данными (пустыми или отозванными) и через несколько минут
+    // после успешного входа снова пометит аккаунт «нужно переподключение» —
+    // и так до перезапуска приложения.
+    final engine = ref.read(syncEngineProvider);
+    final all = await ref.read(accountRepositoryProvider).allAccounts();
     final now = DateTime.now().toUtc();
     for (final a in all) {
       final interval = a.refresh.effectiveInterval;
@@ -88,6 +96,7 @@ final periodicSyncProvider = Provider<void>((ref) {
   // Короткая пауза — система снимает сетевой запрет чуть позже onResume.
   Timer? resumeDelay;
   final lifecycle = AppLifecycleListener(
+    onStateChange: (state) => DiagLog.instance.add('app', 'состояние: ${state.name}'),
     onResume: () {
       resumeDelay?.cancel();
       resumeDelay = Timer(const Duration(seconds: 2), syncDue);

@@ -828,4 +828,26 @@ class L10nDe extends L10n {
 
   @override
   String get uiRetry => 'Wiederholen';
+
+  @override
+  String get setDiagnostics => 'Diagnose';
+
+  @override
+  String get setDiagLog => 'Ereignis- und Fehlerprotokoll';
+
+  @override
+  String get setDiagLogSubtitle =>
+      'Synchronisierung, Anmeldung und Fehler im vollen Wortlaut';
+
+  @override
+  String get diagCopy => 'Protokoll kopieren';
+
+  @override
+  String get diagCopied => 'Protokoll kopiert';
+
+  @override
+  String get diagClear => 'Protokoll leeren';
+
+  @override
+  String get diagEmpty => 'Das Protokoll ist leer';
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../app/window_class.dart';
 import 'calendar_state.dart';
 import 'time_grid.dart';
 
@@ -75,7 +76,7 @@ class _DayPage extends ConsumerWidget {
     // На телефоне отдельная строка с днём недели и числом съедала 57 точек
     // высоты, повторяя дату, которая и так стоит в шапке экрана. Оставляем её
     // только там, где места много (планшет, десктоп).
-    final wide = MediaQuery.of(context).size.width >= 600;
+    final wide = windowClassOf(context) != WindowClass.compact;
 
     return Column(
       children: [
@@ -99,15 +100,25 @@ class _DayPage extends ConsumerWidget {
   }
 }
 
-/// Заголовок единственной колонки дневного вида.
+/// Высота строки с днями над сеткой — общая для дня и недели.
+const double kDayHeaderHeight = 30;
+
+/// День над колонкой сетки одной строкой: «ПН 28».
 ///
-/// Геометрия совпадает с недельной шапкой: пустой участок слева выровнен по
-/// временным меткам [TimeGrid], а дата остаётся по центру доступной ширины на
-/// телефоне и десктопе. День недели берётся из активной локали приложения.
-class DayColumnHeader extends StatelessWidget {
-  const DayColumnHeader({super.key, required this.day});
+/// Раньше день недели стоял над числом в кружке, и шапка съедала 56 точек
+/// высоты ради двух коротких слов. В одну строку она занимает 30. Сегодняшнее
+/// число подсвечено плашкой, день недели берётся из активной локали.
+class DayHeaderCell extends StatelessWidget {
+  const DayHeaderCell({
+    super.key,
+    required this.day,
+    this.weekdayKey,
+    this.numberKey,
+  });
 
   final DateTime day;
+  final Key? weekdayKey;
+  final Key? numberKey;
 
   @override
   Widget build(BuildContext context) {
@@ -120,45 +131,77 @@ class DayColumnHeader extends StatelessWidget {
         day.day == today.day;
     final colors = Theme.of(context).colorScheme;
 
+    // Колонка недели на телефоне — около 50 точек: длинное сокращение дня
+    // (THU, DONNERSTAG → DO.) ужимаем, а не обрезаем.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            weekday,
+            key: weekdayKey,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 11,
+              color: isToday ? colors.primary : Colors.grey,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: isToday
+                ? BoxDecoration(
+                    color: colors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  )
+                : null,
+            child: Text(
+              '${day.day}',
+              key: numberKey,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isToday ? Colors.white : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Заголовок единственной колонки дневного вида.
+///
+/// Геометрия совпадает с недельной шапкой: пустой участок слева выровнен по
+/// временным меткам [TimeGrid], а дата остаётся по центру доступной ширины на
+/// телефоне и десктопе.
+class DayColumnHeader extends StatelessWidget {
+  const DayColumnHeader({super.key, required this.day});
+
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = Localizations.localeOf(context).toString();
+
     return Semantics(
       header: true,
       label: DateFormat.yMMMMEEEEd(locale).format(day),
       child: SizedBox(
-        height: 56,
+        height: kDayHeaderHeight,
         child: Row(
           children: [
             const SizedBox(width: kGutterWidth),
             Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    weekday,
-                    key: const ValueKey('day-column-weekday'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isToday ? colors.primary : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: isToday
-                        ? colors.primary
-                        : Colors.transparent,
-                    child: Text(
-                      '${day.day}',
-                      key: const ValueKey('day-column-number'),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: isToday ? Colors.white : null,
-                      ),
-                    ),
-                  ),
-                ],
+              child: Center(
+                child: DayHeaderCell(
+                  key: const ValueKey('day-column-cell'),
+                  day: day,
+                  weekdayKey: const ValueKey('day-column-weekday'),
+                  numberKey: const ValueKey('day-column-number'),
+                ),
               ),
             ),
           ],

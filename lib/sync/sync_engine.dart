@@ -15,6 +15,7 @@ import '../domain/models/calendar.dart';
 import '../domain/models/calendar_event.dart';
 import '../domain/models/enums.dart';
 import '../domain/providers/calendar_provider.dart';
+import '../services/diag_log.dart';
 
 /// Результат синхронизации одного аккаунта.
 class AccountSyncReport {
@@ -131,6 +132,8 @@ class SyncEngine {
       return await _syncAccount(acc).timeout(
         const Duration(seconds: 150),
         onTimeout: () async {
+          DiagLog.instance.add(
+              'sync', '${acc.id}: проход не уложился в 150 секунд, прерван');
           await accounts.recordSyncFailure(
             acc.id,
             AccountStatus.syncError,
@@ -153,6 +156,10 @@ class SyncEngine {
     // НЕ делаем вид, что синхронизировано: помечаем «не подключён», чтобы
     // пользователь видел реальный статус, а не устаревшие данные (FR-A6).
     if (provider is EmptyProvider) {
+      DiagLog.instance.add(
+          'sync',
+          '${acc.id} (${acc.provider.name}): в хранилище секретов нет учётных '
+              'данных для ${acc.email}, нужен вход');
       await accounts.recordSyncFailure(
         acc.id,
         AccountStatus.needsReconnect,
@@ -162,6 +169,8 @@ class SyncEngine {
     }
 
     Object? lastErr;
+    StackTrace? lastStack;
+    final started = DateTime.now();
 
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -203,6 +212,8 @@ class SyncEngine {
         await events.cleanupOrphanSeriesMasters();
 
         if (pushError != null) {
+          DiagLog.instance
+              .add('sync', '${acc.id}: правка не отправлена: $pushError');
           await accounts.recordSyncFailure(
             acc.id,
             AccountStatus.syncError,
@@ -211,9 +222,18 @@ class SyncEngine {
           return AccountSyncReport(acc.id, error: pushError);
         }
         await accounts.recordSyncSuccess(acc.id, DateTime.now().toUtc());
+        DiagLog.instance.add(
+            'sync',
+            '${acc.id}: готово за '
+                '${DateTime.now().difference(started).inMilliseconds} мс, '
+                'календарей ${cals.length}'
+                '${attempt > 1 ? ', с попытки $attempt' : ''}');
         return AccountSyncReport(acc.id);
-      } catch (e) {
+      } catch (e, st) {
         lastErr = e;
+        lastStack = st;
+        DiagLog.instance.add('sync',
+            '${acc.id}: попытка $attempt из 3 не удалась: ${e.runtimeType}: $e');
         if (attempt < 3) {
           await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
         }
@@ -226,6 +246,11 @@ class SyncEngine {
         : _isNetwork(lastErr)
         ? AccountStatus.offline
         : AccountStatus.syncError;
+    DiagLog.instance.error(
+        'sync',
+        '${acc.id} (${acc.provider.name}, ${acc.email}): статус ${status.name}',
+        lastErr ?? 'неизвестная ошибка',
+        lastStack);
     await accounts.recordSyncFailure(acc.id, status, _describe(lastErr));
     return AccountSyncReport(acc.id, error: lastErr);
   }

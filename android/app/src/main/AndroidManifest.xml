@@ -10,6 +10,12 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
+    <!-- Служба переднего плана на время входа через браузер: без неё Android
+         замораживает приложение, пока человек вводит пароль, и страница входа
+         ждёт ответа от замороженного процесса. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
     <application
         android:label="Calenfi"
         android:name="${applicationName}"
@@ -35,6 +41,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Кнопка «Вернуться в Calenfi» на странице, которую браузер
+                 показывает после входа. Ссылка только поднимает приложение на
+                 экран, данных в ней нет. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="ru.apsolutions.calenfi" android:host="login-done"/>
+            </intent-filter>
+            <!-- Ссылка возврата не маршрут: Flutter не должен пытаться открыть
+                 её как страницу приложения. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
@@ -67,6 +88,14 @@
             android:name=".AgendaRemoteViewsService"
             android:permission="android.permission.BIND_REMOTEVIEWS"
             android:exported="false" />
+
+        <!-- flutter_local_notifications: служба переднего плана на время входа
+             через браузер (см. NotificationService.startLoginKeepAlive). -->
+        <service
+            android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="dataSync" />
 
         <!-- flutter_local_notifications: запланированные уведомления + кнопки. -->
         <receiver
