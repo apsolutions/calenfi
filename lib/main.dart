@@ -36,6 +36,7 @@ void main() async {
   }
   // Журнал диагностики — до всего, что может упасть: хранилище секретов,
   // база, синхронизация пишут в него причины сбоев.
+  DiagLog.instance.echo = true;
   DiagLog.instance.attachFile('${configDir()}/calenfi.log');
   DiagLog.instance.add(
       'app',

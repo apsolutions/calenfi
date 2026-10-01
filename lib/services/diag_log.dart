@@ -27,7 +27,9 @@ class DiagLog {
   File? _file;
 
   /// Печатать ли строки ещё и в stdout (на Android это logcat, тег flutter).
-  bool echo = true;
+  /// По умолчанию выключено: агентский CLI отдаёт в stdout JSON, и строки
+  /// журнала от движка синхронизации ломали бы его разбор. Включает приложение.
+  bool echo = false;
 
   /// Срабатывает на каждую новую строку и на очистку.
   Stream<void> get changes => _changes.stream;

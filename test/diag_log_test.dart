@@ -15,6 +15,17 @@ void main() {
     log.clear();
   });
 
+  test('журнал сам в stdout не пишет: CLI отдаёт туда JSON', () {
+    // Это значение по умолчанию у свежего процесса; приложение включает
+    // печать явно в main().
+    final source = File('lib/services/diag_log.dart').readAsStringSync();
+    expect(source, contains('bool echo = false;'));
+    expect(File('lib/main.dart').readAsStringSync(),
+        contains('DiagLog.instance.echo = true;'));
+    expect(File('bin/calenfi.dart').readAsStringSync(),
+        isNot(contains('echo = true')));
+  });
+
   group('секреты в журнал не попадают', () {
     test('параметры запроса с кодом и токенами', () {
       final s = DiagLog.scrub(
