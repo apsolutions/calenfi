@@ -245,5 +245,8 @@
   "diagCopy": "Copier le journal",
   "diagCopied": "Journal copié",
   "diagClear": "Effacer le journal",
-  "diagEmpty": "Le journal est vide"
+  "diagEmpty": "Le journal est vide",
+  "detNotes": "Mes notes",
+  "detNotesHint": "Ordre du jour, questions, à préparer",
+  "detNotesPrivate": "Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants."
 }

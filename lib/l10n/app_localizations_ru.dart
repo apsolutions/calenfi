@@ -860,4 +860,14 @@ class L10nRu extends L10n {
 
   @override
   String get diagEmpty => 'Журнал пуст';
+
+  @override
+  String get detNotes => 'Мои заметки';
+
+  @override
+  String get detNotesHint => 'Повестка, вопросы, что подготовить';
+
+  @override
+  String get detNotesPrivate =>
+      'Видно только вам: заметка хранится в Calenfi и не уходит ни в календарь, ни участникам.';
 }

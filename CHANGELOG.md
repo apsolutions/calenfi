@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18] — 2026-10-03
+
+### Added
+- Private notes for a meeting. The event card has a **My notes** field for the
+  agenda, questions and things to prepare. The note stays in Calenfi's local
+  database: it is never written to the provider's event and attendees never
+  see it. It is saved as you type, follows the meeting across all merged
+  copies and survives a reschedule, and a small note icon marks such meetings
+  in the grid. The agent CLI reads and writes notes with
+  `calenfi note --id ID [--set TEXT | --clear]`, and `agenda` includes them.
+  Notes are not synced between devices yet.
+
+### Changed
+- The copy shown on top of a merged meeting is now the one from the calendar
+  my account was invited to. Before, the first copy by id won, so an interview
+  with a booked room showed up as "Room booking calendar" and an invitation
+  could appear under a read-only subscription. The account's own main
+  calendar ranks first, then a calendar whose account is among the attendees
+  or organizes the meeting; read-only calendars and declined copies rank last.
+
+### Fixed
+- After the computer woke from sleep the desktop app showed "not updated: no
+  network" for half a minute: the first sync ran before Wi-Fi reconnected. A
+  late timer tick now marks a wake-up, and network failures in the following
+  two minutes are retried silently instead of being shown.
+
 ## [0.3.17] — 2026-10-01
 
 ### Added

@@ -850,4 +850,14 @@ class L10nFr extends L10n {
 
   @override
   String get diagEmpty => 'Le journal est vide';
+
+  @override
+  String get detNotes => 'Mes notes';
+
+  @override
+  String get detNotesHint => 'Ordre du jour, questions, à préparer';
+
+  @override
+  String get detNotesPrivate =>
+      'Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants.';
 }

@@ -140,6 +140,14 @@ void main() {
     });
   });
 
+  testWidgets('после сна компьютера сеть две минуты не ждём', (tester) async {
+    final woke = DateTime.utc(2026, 10, 2, 17, 52, 48);
+    lastWakeUtc = woke;
+    addTearDown(() => lastWakeUtc = null);
+    expect(networkExpectedAt(woke.add(const Duration(seconds: 20))), isFalse);
+    expect(networkExpectedAt(woke.add(const Duration(minutes: 3))), isTrue);
+  });
+
   test('нативная задача и Dart-точка входа называются одинаково', () {
     final worker = File(
             'android/app/src/main/kotlin/ru/apsolutions/calenfi/BackgroundSyncWorker.kt')

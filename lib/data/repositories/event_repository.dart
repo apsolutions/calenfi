@@ -28,14 +28,24 @@ class EventRepository {
     bool combine = true,
   }) {
     return _db
-        .watchEventsInRange(
+        .watchEventsWithOwnersInRange(
           range.startUtc,
           range.endUtc,
           includeCancelled: includeCancelled,
         )
         .map((rows) {
-          final domain = rows.map(_mapper.toDomain).toList();
-          return _dedup.group(domain, combine: combine);
+          final domain = [for (final r in rows) _mapper.toDomain(r.event)];
+          final ownership = <String, CopyOwnership>{
+            for (final r in rows)
+              r.calendar.id: CopyOwnership(
+                accountEmail: r.account?.email ?? '',
+                calendarName: r.calendar.name,
+                isPrimary: r.calendar.isPrimary,
+                readOnly: r.calendar.readOnly,
+              ),
+          };
+          return _dedup.group(domain,
+              combine: combine, ownership: ownership);
         });
   }
 

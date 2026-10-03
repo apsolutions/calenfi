@@ -833,4 +833,13 @@ class L10nZh extends L10n {
 
   @override
   String get diagEmpty => '日志为空';
+
+  @override
+  String get detNotes => '我的笔记';
+
+  @override
+  String get detNotesHint => '议程、问题、准备事项';
+
+  @override
+  String get detNotesPrivate => '仅你可见：保存在 Calenfi 中，不会发送到日历或参与者。';
 }

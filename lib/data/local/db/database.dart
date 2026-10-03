@@ -143,6 +143,12 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+        // Личные заметки к встречам: отдельная таблица без кодогенерации и
+        // без смены schemaVersion — старые сборки (CLI, десктоп другой
+        // версии) открывают ту же базу и не видят повода для миграции.
+        beforeOpen: (_) async {
+          await customStatement(kEventNotesDdl);
+        },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.addColumn(accounts, accounts.lastSyncUtc);
@@ -197,4 +203,53 @@ class AppDatabase extends _$AppDatabase {
           (rows) => rows.map((r) => r.readTable(events)).toList(),
         );
   }
+
+  /// То же, что [watchEventsInRange], но вместе с календарём и учётной
+  /// записью каждого события: склейке нужно знать, чья копия «моя».
+  Stream<List<EventWithOwner>> watchEventsWithOwnersInRange(
+    DateTime startUtc,
+    DateTime endUtc, {
+    bool includeCancelled = false,
+  }) {
+    final query = select(events).join([
+      innerJoin(calendars, calendars.id.equalsExp(events.calendarId)),
+      leftOuterJoin(accounts, accounts.id.equalsExp(calendars.accountId)),
+    ])
+      ..where(calendars.visible.equals(true))
+      ..where(events.startUtc.isSmallerThanValue(endUtc))
+      ..where(events.endUtc.isBiggerThanValue(startUtc));
+
+    if (!includeCancelled) {
+      query
+        ..where(events.deletedRemotely.equals(false))
+        ..where(events.status.isNotIn([EventStatus.cancelled.index]));
+    }
+
+    return query.watch().map(
+          (rows) => [
+            for (final r in rows)
+              EventWithOwner(
+                r.readTable(events),
+                r.readTable(calendars),
+                r.readTableOrNull(accounts),
+              ),
+          ],
+        );
+  }
+}
+
+/// Таблица личных заметок к встречам (см. `NotesRepository`).
+const kEventNotesDdl = '''
+CREATE TABLE IF NOT EXISTS event_notes (
+  note_key TEXT NOT NULL PRIMARY KEY,
+  body TEXT NOT NULL,
+  updated_utc INTEGER NOT NULL
+)''';
+
+/// Строка события вместе с её календарём и учётной записью.
+class EventWithOwner {
+  const EventWithOwner(this.event, this.calendar, this.account);
+  final Event event;
+  final CalendarRow calendar;
+  final AccountRow? account;
 }

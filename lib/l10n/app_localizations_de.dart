@@ -850,4 +850,14 @@ class L10nDe extends L10n {
 
   @override
   String get diagEmpty => 'Das Protokoll ist leer';
+
+  @override
+  String get detNotes => 'Meine Notizen';
+
+  @override
+  String get detNotesHint => 'Agenda, Fragen, Vorbereitung';
+
+  @override
+  String get detNotesPrivate =>
+      'Nur für Sie sichtbar: bleibt in Calenfi und geht weder an den Kalender noch an Teilnehmer.';
 }

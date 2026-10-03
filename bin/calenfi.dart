@@ -22,6 +22,7 @@ import 'package:calenfi/data/providers/conference/conference_provisioner.dart';
 import 'package:calenfi/data/repositories/account_repository.dart';
 import 'package:calenfi/data/repositories/contact_repository.dart';
 import 'package:calenfi/data/repositories/event_repository.dart';
+import 'package:calenfi/data/repositories/notes_repository.dart';
 import 'package:calenfi/domain/models/account.dart';
 import 'package:calenfi/domain/models/attendee.dart';
 import 'package:calenfi/domain/models/calendar.dart';
@@ -65,7 +66,7 @@ Future<void> main(List<String> argv) async {
   try {
     switch (command) {
       case 'agenda':
-        await _agenda(events, flags);
+        await _agenda(events, NotesRepository(db), flags);
       case 'busy':
         await _busy(events, flags);
       case 'freeslots':
@@ -84,6 +85,8 @@ Future<void> main(List<String> argv) async {
         await _calendars(accounts);
       case 'sync':
         await _sync(events, accounts, registry, flags);
+      case 'note':
+        await _note(events, NotesRepository(db), flags);
       case 'contacts':
         await _contacts(contacts);
       case 'contact-add':
@@ -142,7 +145,8 @@ Future<void> _sync(EventRepository events, AccountRepository accounts,
   }
 }
 
-Future<void> _agenda(EventRepository repo, Map<String, String> f) async {
+Future<void> _agenda(
+    EventRepository repo, NotesRepository notes, Map<String, String> f) async {
   final range = _range(f);
   final includeCancelled = f.containsKey('include-cancelled');
   final merged = await repo
@@ -153,7 +157,38 @@ Future<void> _agenda(EventRepository repo, Map<String, String> f) async {
     'from': range.startUtc.toUtc().toIso8601String(),
     'to': range.endUtc.toUtc().toIso8601String(),
     'count': merged.length,
-    'events': merged.map(_mergedJson).toList(),
+    'events': [
+      for (final m in merged)
+        {
+          ..._mergedJson(m),
+          // Личная заметка к встрече (повестка), если есть.
+          'note': ?await notes.read(m),
+        },
+    ],
+  });
+}
+
+/// Личная заметка к встрече (видна только в Calenfi): `note --id <id>` —
+/// прочитать, `--set "текст"` — записать, `--clear` — удалить.
+Future<void> _note(
+    EventRepository repo, NotesRepository notes, Map<String, String> f) async {
+  _require(f, ['id']);
+  final e = await repo.getById(f['id']!);
+  if (e == null) _fail('event not found: ${f['id']}');
+  final merged = (await repo
+          .watchMerged(DateRange(e!.startUtc, e.endUtc), combine: true)
+          .first)
+      .firstWhere((m) => m.sources.any((s) => s.id == e.id),
+          orElse: () => MergedEvent(groupId: e.id, primary: e, sources: [e]));
+  if (f.containsKey('clear')) {
+    await notes.write(merged, '');
+  } else if (f.containsKey('set')) {
+    await notes.write(merged, f['set']!);
+  }
+  _ok({
+    'id': e.id,
+    'title': e.title,
+    'note': await notes.read(merged),
   });
 }
 
@@ -721,6 +756,7 @@ Calenfi Agent CLI — JSON-интерфейс к локальному кален
   agenda    --from ISO --to ISO [--include-cancelled]   список встреч
   busy      --from ISO --to ISO                          интервалы занятости (free/busy)
   freeslots --from ISO --to ISO --duration MIN [--day-start 10 --day-end 20]
+  note      --id ID [--set "текст" | --clear]            личная заметка к встрече (только в Calenfi)
   create    --title T --start ISO --end ISO [--calendar ID|--account EMAIL]
             [--all-day (тогда --start/--end — даты, --end необязателен)]
             [--location L --description D --attendees a@x,b@y --room room@x

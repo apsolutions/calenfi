@@ -1,5 +1,32 @@
 import '../domain/models/calendar_event.dart';
+import '../domain/models/enums.dart';
 import '../domain/models/merged_event.dart';
+
+/// Чей календарь держит копию события: нужен, чтобы сверху склейки стояла
+/// копия из календаря, куда пригласили меня, а не бронь переговорки или
+/// подписка на чужой календарь.
+class CopyOwnership {
+  const CopyOwnership({
+    required this.accountEmail,
+    required this.calendarName,
+    this.isPrimary = false,
+    this.readOnly = false,
+  });
+
+  /// Адрес учётной записи, к которой относится календарь.
+  final String accountEmail;
+
+  /// Имя календаря у провайдера (без пользовательского переименования).
+  final String calendarName;
+  final bool isPrimary;
+  final bool readOnly;
+
+  /// Основной календарь самой учётной записи: так его отмечает провайдер,
+  /// либо (у CalDAV, где отметки нет) он назван адресом учётной записи.
+  bool get isOwnMain =>
+      isPrimary ||
+      calendarName.trim().toLowerCase() == accountEmail.trim().toLowerCase();
+}
 
 /// Движок дедупликации / склейки одинаковых событий (FR-D1, FR-D2).
 ///
@@ -17,7 +44,14 @@ class DedupEngine {
 
   /// Группирует события в [MergedEvent]. Если [combine] == false — каждое
   /// событие остаётся отдельной «группой из одного» (FR-C11).
-  List<MergedEvent> group(List<CalendarEvent> events, {bool combine = true}) {
+  ///
+  /// [ownership] — сведения о календарях по их id; без них основная копия
+  /// выбирается только по моему ответу на приглашение.
+  List<MergedEvent> group(
+    List<CalendarEvent> events, {
+    bool combine = true,
+    Map<String, CopyOwnership> ownership = const {},
+  }) {
     if (!combine) {
       return events
           .map((e) => MergedEvent(groupId: e.id, primary: e, sources: [e]))
@@ -62,7 +96,7 @@ class DedupEngine {
     }
 
     return groups.values.map((members) {
-      final primary = _pickPrimary(members);
+      final primary = _pickPrimary(members, ownership);
       return MergedEvent(
         groupId: primary.id,
         primary: primary,
@@ -84,18 +118,58 @@ class DedupEngine {
   static String normalizeTitle(String title) =>
       title.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
-  /// «Основной» источник для редактирования (FR-D5). Детерминированно:
-  /// сначала тот, где я организатор/принял, иначе — стабильно по id.
-  static CalendarEvent _pickPrimary(List<CalendarEvent> members) {
+  /// «Основной» источник склейки (FR-D5): его название, календарь и цвет
+  /// видны в сетке, и в него идут правки.
+  ///
+  /// Сверху должна стоять копия из моего календаря, куда пригласили мою
+  /// учётную запись. Раньше брался первый по id с ответом «нет ответа» или
+  /// «принято», и встреча с бронью переговорки показывалась календарём
+  /// бронирования, а приглашение из чужого календаря — календарём подписки.
+  static CalendarEvent _pickPrimary(
+    List<CalendarEvent> members,
+    Map<String, CopyOwnership> ownership,
+  ) {
     final sorted = [...members]..sort((a, b) => a.id.compareTo(b.id));
     // Сначала НАСТОЯЩИЕ события (id вида `accId:providerId`), а не локальные
     // UUID-копии/призраки — чтобы правки/переименование шли в реальное событие.
     final real = sorted.where((e) => e.id.contains(':')).toList();
     final pool = real.isNotEmpty ? real : sorted;
-    return pool.firstWhere(
-      (e) => e.myResponse.index <= 1, // needsAction(0)/accepted(1) — приоритет
-      orElse: () => pool.first,
-    );
+    var best = pool.first;
+    var bestScore = ownershipScore(best, ownership[best.calendarId]);
+    for (final e in pool.skip(1)) {
+      final s = ownershipScore(e, ownership[e.calendarId]);
+      if (s > bestScore) {
+        best = e;
+        bestScore = s;
+      }
+    }
+    return best;
+  }
+
+  /// Насколько копия «моя». Больше — выше в склейке.
+  static int ownershipScore(CalendarEvent e, CopyOwnership? owner) {
+    var score = 0;
+    if (owner != null) {
+      final me = owner.accountEmail.trim().toLowerCase();
+      final invited = me.isNotEmpty &&
+          e.attendees.any((a) => !a.isResource && a.email.trim().toLowerCase() == me);
+      // Учётная запись этого календаря в участниках или организатор.
+      if (invited || e.myResponse == ResponseStatus.organizer) score += 4;
+      // Основной календарь учётной записи, а не общий, не бронь, не подписка.
+      if (owner.isOwnMain) score += 8;
+      if (owner.readOnly) score -= 4;
+    }
+    switch (e.myResponse) {
+      case ResponseStatus.accepted:
+      case ResponseStatus.organizer:
+        score += 2;
+      case ResponseStatus.needsAction:
+      case ResponseStatus.tentative:
+        score += 1;
+      case ResponseStatus.declined:
+        score -= 2;
+    }
+    return score;
   }
 }
 

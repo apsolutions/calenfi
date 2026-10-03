@@ -1580,6 +1580,24 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'The log is empty'**
   String get diagEmpty;
+
+  /// No description provided for @detNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'My notes'**
+  String get detNotes;
+
+  /// No description provided for @detNotesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Agenda, questions, what to prepare'**
+  String get detNotesHint;
+
+  /// No description provided for @detNotesPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.'**
+  String get detNotesPrivate;
 }
 
 class _L10nDelegate extends LocalizationsDelegate<L10n> {

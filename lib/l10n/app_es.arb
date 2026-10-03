@@ -245,5 +245,8 @@
   "diagCopy": "Copiar registro",
   "diagCopied": "Registro copiado",
   "diagClear": "Borrar registro",
-  "diagEmpty": "El registro está vacío"
+  "diagEmpty": "El registro está vacío",
+  "detNotes": "Mis notas",
+  "detNotesHint": "Agenda, preguntas, qué preparar",
+  "detNotesPrivate": "Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes."
 }

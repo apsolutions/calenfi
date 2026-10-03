@@ -19,6 +19,7 @@ import '../event_editor/event_editor_screen.dart';
 import 'calendar_state.dart';
 import 'linkified_text.dart';
 import 'pending_edits.dart';
+import 'private_notes.dart';
 
 /// Карточка события (FR-V10) со склейкой источников (FR-D3), джойном видеовстречи
 /// (FR-M2), RSVP (FR-R2) и редактированием/удалением (FR-E3/E4).
@@ -132,6 +133,10 @@ class _EventDetails extends ConsumerWidget {
                     fallback: src.calendarId,
                     trailing: _responseLabel(l10n, src.myResponse)),
             ],
+
+            // Личные заметки: повестка и подготовка, видны только мне.
+            const SizedBox(height: 12),
+            PrivateNotesField(event: event),
 
             // участники-люди и их статусы подтверждения (FR-R3); переговорка
             // (ресурс) показана отдельной строкой выше.

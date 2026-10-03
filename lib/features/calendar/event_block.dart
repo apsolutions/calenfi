@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app/providers.dart';
+import '../../data/repositories/notes_repository.dart';
 
 import '../../domain/models/enums.dart';
 import '../../domain/models/merged_event.dart';
@@ -10,15 +14,17 @@ import 'event_details_sheet.dart';
 ///  • accepted/organizer → заливка;
 ///  • needsAction («направлено, ожидает ответа») → контур;
 ///  • cancelled/удалено (FR-V12) → приглушённо + зачёркнуто.
-class EventBlock extends StatelessWidget {
+class EventBlock extends ConsumerWidget {
   const EventBlock({super.key, required this.event, required this.color});
 
   final MergedEvent event;
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final e = event.primary;
+    final noteKeys = ref.watch(noteKeysProvider).value ?? const <String>{};
+    final hasNote = NotesRepository.hasNote(event, noteKeys);
     final pending = e.myResponse == ResponseStatus.needsAction;
     final cancelled = e.isCancelled;
     final start = e.startUtc.toLocal();
@@ -67,6 +73,12 @@ class EventBlock extends StatelessWidget {
                       if (e.conference != null)
                         Icon(Icons.videocam,
                             size: 11, color: color.withValues(alpha: 0.9)),
+                      if (hasNote)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 2),
+                          child: Icon(Icons.sticky_note_2_outlined,
+                              size: 11, color: color.withValues(alpha: 0.9)),
+                        ),
                       if (event.isMerged)
                         Padding(
                           padding: const EdgeInsets.only(left: 2),

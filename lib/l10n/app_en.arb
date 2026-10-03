@@ -468,5 +468,8 @@
   "diagCopy": "Copy log",
   "diagCopied": "Log copied",
   "diagClear": "Clear log",
-  "diagEmpty": "The log is empty"
+  "diagEmpty": "The log is empty",
+  "detNotes": "My notes",
+  "detNotesHint": "Agenda, questions, what to prepare",
+  "detNotesPrivate": "Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees."
 }

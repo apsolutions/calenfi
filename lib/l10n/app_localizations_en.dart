@@ -846,4 +846,14 @@ class L10nEn extends L10n {
 
   @override
   String get diagEmpty => 'The log is empty';
+
+  @override
+  String get detNotes => 'My notes';
+
+  @override
+  String get detNotesHint => 'Agenda, questions, what to prepare';
+
+  @override
+  String get detNotesPrivate =>
+      'Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.';
 }

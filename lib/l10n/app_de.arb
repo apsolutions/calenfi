@@ -245,5 +245,8 @@
   "diagCopy": "Protokoll kopieren",
   "diagCopied": "Protokoll kopiert",
   "diagClear": "Protokoll leeren",
-  "diagEmpty": "Das Protokoll ist leer"
+  "diagEmpty": "Das Protokoll ist leer",
+  "detNotes": "Meine Notizen",
+  "detNotesHint": "Agenda, Fragen, Vorbereitung",
+  "detNotesPrivate": "Nur für Sie sichtbar: bleibt in Calenfi und geht weder an den Kalender noch an Teilnehmer."
 }

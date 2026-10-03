@@ -12,6 +12,7 @@ import '../data/local/db/database.dart';
 import '../data/repositories/account_repository.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/event_repository.dart';
+import '../data/repositories/notes_repository.dart';
 import '../domain/models/account.dart';
 import '../domain/models/calendar.dart';
 import '../services/diag_log.dart';
@@ -37,9 +38,19 @@ const kUiSyncPortName = 'ru.apsolutions.calenfi.ui-sync';
 /// хотя оно не на экране.
 bool backgroundJobActive = false;
 
+/// Когда компьютер в последний раз проснулся (см. [periodicSyncProvider]).
+DateTime? lastWakeUtc;
+
+/// Сколько после пробуждения сеть может ещё не подняться. Wi-Fi на маке
+/// подключается за 10–30 секунд после открытия крышки.
+const wakeGrace = Duration(minutes: 2);
+
 /// Можно ли сейчас рассчитывать на сеть. На телефоне приложению в фоне её
-/// режут, и отказ «хост не найден» там ничего не говорит об аккаунте.
-bool _networkExpected() {
+/// режут, а сразу после сна компьютера она ещё не поднялась: отказ «хост не
+/// найден» в обоих случаях ничего не говорит об аккаунте.
+bool networkExpectedAt(DateTime nowUtc) {
+  final woke = lastWakeUtc;
+  if (woke != null && nowUtc.difference(woke) < wakeGrace) return false;
   final mobile = defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
   if (!mobile || backgroundJobActive) return true;
@@ -48,6 +59,12 @@ bool _networkExpected() {
       state == AppLifecycleState.resumed ||
       state == AppLifecycleState.inactive;
 }
+
+bool _networkExpected() => networkExpectedAt(DateTime.now().toUtc());
+
+/// Разрыв между минутными тиками, после которого считаем, что компьютер спал:
+/// во сне таймеры стоят, и после пробуждения тик приходит с опозданием.
+const _sleepGap = Duration(minutes: 3);
 
 final syncEngineProvider = Provider<SyncEngine>((ref) {
   final engine = SyncEngine(
@@ -67,6 +84,15 @@ final accountsStreamProvider = StreamProvider<List<Account>>((ref) {
 
 final calendarsStreamProvider = StreamProvider<List<Calendar>>((ref) {
   return ref.watch(accountRepositoryProvider).watchCalendars();
+});
+
+final notesRepositoryProvider = Provider<NotesRepository>((ref) {
+  return NotesRepository(ref.watch(databaseProvider));
+});
+
+/// Ключи встреч, у которых есть личная заметка (значок на блоке встречи).
+final noteKeysProvider = StreamProvider<Set<String>>((ref) {
+  return ref.watch(notesRepositoryProvider).watchKeys();
 });
 
 final contactRepositoryProvider = Provider<ContactRepository>((ref) {
@@ -113,7 +139,20 @@ final periodicSyncProvider = Provider<void>((ref) {
     }
   }
 
-  final timer = Timer.periodic(const Duration(minutes: 1), (_) => syncDue());
+  // Тик после сна запускал синк, пока сеть ещё не поднялась, и аккаунты
+  // на полминуты получали «нет сети». Замечаем сон по опозданию тика.
+  var lastTick = DateTime.now().toUtc();
+  final timer = Timer.periodic(const Duration(minutes: 1), (_) {
+    final now = DateTime.now().toUtc();
+    if (now.difference(lastTick) > _sleepGap) {
+      lastWakeUtc = now;
+      DiagLog.instance.add('app',
+          'пробуждение после сна (${now.difference(lastTick).inMinutes} мин): '
+              'сетевые сбои ${wakeGrace.inMinutes} мин не показываю');
+    }
+    lastTick = now;
+    syncDue();
+  });
   // Android в энергосбережении отрезает сеть фоновым приложениям: фоновые
   // попытки падают, и аккаунт висит «нет сети» со старыми встречами. При
   // возврате на экран досинкиваем просроченное сразу, не ждём минутного тика.

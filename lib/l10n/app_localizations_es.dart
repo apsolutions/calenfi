@@ -848,4 +848,14 @@ class L10nEs extends L10n {
 
   @override
   String get diagEmpty => 'El registro está vacío';
+
+  @override
+  String get detNotes => 'Mis notas';
+
+  @override
+  String get detNotesHint => 'Agenda, preguntas, qué preparar';
+
+  @override
+  String get detNotesPrivate =>
+      'Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes.';
 }
