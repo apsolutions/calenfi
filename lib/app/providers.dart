@@ -12,6 +12,7 @@ import '../data/local/db/database.dart';
 import '../data/repositories/account_repository.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/event_repository.dart';
+import '../data/notes/notes_sync.dart';
 import '../data/repositories/notes_repository.dart';
 import '../domain/models/account.dart';
 import '../domain/models/calendar.dart';
@@ -88,6 +89,41 @@ final calendarsStreamProvider = StreamProvider<List<Calendar>>((ref) {
 
 final notesRepositoryProvider = Provider<NotesRepository>((ref) {
   return NotesRepository(ref.watch(databaseProvider));
+});
+
+final notesSyncProvider = Provider<NotesSync>((ref) {
+  return NotesSync(
+    notes: ref.watch(notesRepositoryProvider),
+    accounts: ref.watch(accountRepositoryProvider),
+  );
+});
+
+/// Через какой Google-аккаунт синхронизируются заметки (null — только здесь).
+final notesSyncChannelProvider = FutureProvider<String?>((ref) async {
+  ref.watch(accountsStreamProvider);
+  return (await ref.watch(notesSyncProvider).channel())?.email;
+});
+
+/// Держит заметки в синхроне с другими устройствами: при старте, через
+/// несколько секунд после правки, раз в 5 минут и при возврате на экран.
+/// Watch'ить в корне App.
+final notesSyncLoopProvider = Provider<void>((ref) {
+  void run() => ref.read(notesSyncProvider).sync();
+  final start = Timer(const Duration(seconds: 5), run);
+  final periodic = Timer.periodic(const Duration(minutes: 5), (_) => run());
+  Timer? debounce;
+  final edits = NotesRepository.localEdits.listen((_) {
+    debounce?.cancel();
+    debounce = Timer(const Duration(seconds: 3), run);
+  });
+  final lifecycle = AppLifecycleListener(onResume: run);
+  ref.onDispose(() {
+    start.cancel();
+    periodic.cancel();
+    debounce?.cancel();
+    edits.cancel();
+    lifecycle.dispose();
+  });
 });
 
 /// Ключи встреч, у которых есть личная заметка (значок на блоке встречи).
@@ -178,6 +214,7 @@ final periodicSyncProvider = Provider<void>((ref) {
     try {
       await syncDue();
       await ref.read(syncEngineProvider).whenIdle();
+      await ref.read(notesSyncProvider).sync();
       DiagLog.instance.add('bg', 'фоновая задача: готово');
     } on Object catch (e, st) {
       DiagLog.instance.error('bg', 'фоновая задача не удалась', e, st);

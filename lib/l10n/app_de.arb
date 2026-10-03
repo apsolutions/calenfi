@@ -248,5 +248,8 @@
   "diagEmpty": "Das Protokoll ist leer",
   "detNotes": "Meine Notizen",
   "detNotesHint": "Agenda, Fragen, Vorbereitung",
-  "detNotesPrivate": "Nur für Sie sichtbar: bleibt in Calenfi und geht weder an den Kalender noch an Teilnehmer."
+  "detNotesPrivate": "Nur für Sie sichtbar: bleibt in Calenfi und geht weder an den Kalender noch an Teilnehmer.",
+  "setNotesSync": "Notizen zu Terminen",
+  "setNotesSyncVia": "Über Google Tasks zwischen Geräten synchronisiert: {email}",
+  "setNotesLocalOnly": "Nur auf diesem Gerät. Google-Konto neu verbinden, um über Google Tasks zu synchronisieren."
 }

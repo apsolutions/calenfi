@@ -858,4 +858,16 @@ class L10nEs extends L10n {
   @override
   String get detNotesPrivate =>
       'Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes.';
+
+  @override
+  String get setNotesSync => 'Notas de reuniones';
+
+  @override
+  String setNotesSyncVia(String email) {
+    return 'Sincronizadas entre dispositivos con Google Tasks: $email';
+  }
+
+  @override
+  String get setNotesLocalOnly =>
+      'Solo en este dispositivo. Vuelve a conectar una cuenta de Google para sincronizarlas con Google Tasks.';
 }

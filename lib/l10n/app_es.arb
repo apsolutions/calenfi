@@ -248,5 +248,8 @@
   "diagEmpty": "El registro está vacío",
   "detNotes": "Mis notas",
   "detNotesHint": "Agenda, preguntas, qué preparar",
-  "detNotesPrivate": "Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes."
+  "detNotesPrivate": "Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes.",
+  "setNotesSync": "Notas de reuniones",
+  "setNotesSyncVia": "Sincronizadas entre dispositivos con Google Tasks: {email}",
+  "setNotesLocalOnly": "Solo en este dispositivo. Vuelve a conectar una cuenta de Google para sincronizarlas con Google Tasks."
 }

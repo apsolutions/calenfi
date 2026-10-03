@@ -842,4 +842,15 @@ class L10nZh extends L10n {
 
   @override
   String get detNotesPrivate => '仅你可见：保存在 Calenfi 中，不会发送到日历或参与者。';
+
+  @override
+  String get setNotesSync => '会议笔记';
+
+  @override
+  String setNotesSyncVia(String email) {
+    return '通过 Google Tasks 在设备间同步：$email';
+  }
+
+  @override
+  String get setNotesLocalOnly => '仅在此设备上。重新连接 Google 账户即可通过 Google Tasks 同步。';
 }

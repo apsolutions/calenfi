@@ -856,4 +856,16 @@ class L10nEn extends L10n {
   @override
   String get detNotesPrivate =>
       'Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.';
+
+  @override
+  String get setNotesSync => 'Meeting notes';
+
+  @override
+  String setNotesSyncVia(String email) {
+    return 'Synced between devices via Google Tasks: $email';
+  }
+
+  @override
+  String get setNotesLocalOnly =>
+      'Only on this device. Reconnect a Google account to sync them via Google Tasks.';
 }

@@ -860,4 +860,16 @@ class L10nFr extends L10n {
   @override
   String get detNotesPrivate =>
       'Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants.';
+
+  @override
+  String get setNotesSync => 'Notes de réunion';
+
+  @override
+  String setNotesSyncVia(String email) {
+    return 'Synchronisées entre appareils via Google Tasks : $email';
+  }
+
+  @override
+  String get setNotesLocalOnly =>
+      'Uniquement sur cet appareil. Reconnectez un compte Google pour les synchroniser via Google Tasks.';
 }

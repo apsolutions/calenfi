@@ -248,5 +248,8 @@
   "diagEmpty": "Le journal est vide",
   "detNotes": "Mes notes",
   "detNotesHint": "Ordre du jour, questions, à préparer",
-  "detNotesPrivate": "Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants."
+  "detNotesPrivate": "Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants.",
+  "setNotesSync": "Notes de réunion",
+  "setNotesSyncVia": "Synchronisées entre appareils via Google Tasks : {email}",
+  "setNotesLocalOnly": "Uniquement sur cet appareil. Reconnectez un compte Google pour les synchroniser via Google Tasks."
 }

@@ -22,7 +22,48 @@ class GoogleToken {
     this.email,
     this.accessToken,
     this.expiry,
+    this.storeKey,
+    this.scopes = const [],
   });
+
+  /// Ключ в хранилище секретов, куда писать обновлённый токен. null — ключ
+  /// токена календаря для [email].
+  final String? storeKey;
+
+  /// Области доступа, выданные при входе (если записаны в токене).
+  final List<String> scopes;
+
+  /// Область доступа Google Tasks: через неё синхронизируются заметки.
+  static const tasksScope = 'https://www.googleapis.com/auth/tasks';
+
+  /// Ключ токена с доступом к Google Tasks (формат приложения tt).
+  static String tasksSecretKey(String email) =>
+      SecretStore.tokenKey('gtasks_${_key(email)}');
+
+  /// Токен с доступом к Google Tasks для [email]: отдельный токен задач, а
+  /// если его нет — токен календаря, если при входе выдали и задачи.
+  static GoogleToken? loadForTasks(String email) {
+    for (final key in [tasksSecretKey(email), secretKey(email)]) {
+      final raw = SecretStore.instance.value(key);
+      if (raw == null) continue;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final scopes = [
+        for (final s in (m['scopes'] as List? ?? const [])) s.toString(),
+      ];
+      if (m['refresh_token'] == null || !scopes.contains(tasksScope)) continue;
+      return GoogleToken(
+        clientId: m['client_id'] as String,
+        clientSecret: m['client_secret'] as String,
+        refreshToken: m['refresh_token'] as String,
+        tokenUri: (m['token_uri'] as String?) ??
+            'https://oauth2.googleapis.com/token',
+        email: email,
+        storeKey: key,
+        scopes: scopes,
+      );
+    }
+    return null;
+  }
 
   final String clientId;
   final String clientSecret;
@@ -58,6 +99,9 @@ class GoogleToken {
       tokenUri: (m['token_uri'] as String?) ?? 'https://oauth2.googleapis.com/token',
       email: email,
       accessToken: m['token'] as String?,
+      scopes: [
+        for (final s in (m['scopes'] as List? ?? const [])) s.toString(),
+      ],
     );
   }
 
@@ -102,16 +146,17 @@ class GoogleToken {
   Future<void> _keepRotatedRefreshToken(Object? fresh) async {
     if (fresh is! String || fresh.isEmpty || fresh == refreshToken) return;
     refreshToken = fresh;
-    final key = email;
+    final key = storeKey ?? (email == null ? null : secretKey(email!));
     if (key == null) return;
     await SecretStore.instance.write(
-      secretKey(key),
+      key,
       jsonEncode({
         'token': accessToken,
         'refresh_token': refreshToken,
         'token_uri': tokenUri,
         'client_id': clientId,
         'client_secret': clientSecret,
+        if (scopes.isNotEmpty) 'scopes': scopes,
       }),
     );
   }

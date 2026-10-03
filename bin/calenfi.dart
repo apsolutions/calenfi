@@ -22,6 +22,7 @@ import 'package:calenfi/data/providers/conference/conference_provisioner.dart';
 import 'package:calenfi/data/repositories/account_repository.dart';
 import 'package:calenfi/data/repositories/contact_repository.dart';
 import 'package:calenfi/data/repositories/event_repository.dart';
+import 'package:calenfi/data/notes/notes_sync.dart';
 import 'package:calenfi/data/repositories/notes_repository.dart';
 import 'package:calenfi/domain/models/account.dart';
 import 'package:calenfi/domain/models/attendee.dart';
@@ -52,7 +53,7 @@ Future<void> main(List<String> argv) async {
   // процесс, кэша между ними нет, поэтому keyring дёргаем ТОЛЬКО для команд,
   // которым секреты действительно нужны: иначе серия локальных create/delete
   // устраивает шквал запросов к связке ключей (и диалогов разблокировки).
-  const needSecrets = {'sync', 'secret-set'};
+  const needSecrets = {'sync', 'secret-set', 'note', 'notes-sync'};
   if (needSecrets.contains(command)) {
     await SecretStore.instance.warmUp();
   }
@@ -86,7 +87,12 @@ Future<void> main(List<String> argv) async {
       case 'sync':
         await _sync(events, accounts, registry, flags);
       case 'note':
-        await _note(events, NotesRepository(db), flags);
+        await _note(events, NotesRepository(db),
+            NotesSync(notes: NotesRepository(db), accounts: accounts), flags);
+      case 'notes-sync':
+        final r = await NotesSync(notes: NotesRepository(db), accounts: accounts).sync();
+        if (!r.ok) _fail('notes sync failed: ${r.error}');
+        _ok({'via': r.email, 'pulled': r.pulled, 'pushed': r.pushed});
       case 'contacts':
         await _contacts(contacts);
       case 'contact-add':
@@ -170,9 +176,11 @@ Future<void> _agenda(
 
 /// Личная заметка к встрече (видна только в Calenfi): `note --id <id>` —
 /// прочитать, `--set "текст"` — записать, `--clear` — удалить.
-Future<void> _note(
-    EventRepository repo, NotesRepository notes, Map<String, String> f) async {
+Future<void> _note(EventRepository repo, NotesRepository notes,
+    NotesSync sync, Map<String, String> f) async {
   _require(f, ['id']);
+  // Сначала забираем правки с других устройств, после записи — отправляем.
+  await sync.sync();
   final e = await repo.getById(f['id']!);
   if (e == null) _fail('event not found: ${f['id']}');
   final merged = (await repo
@@ -185,7 +193,11 @@ Future<void> _note(
   } else if (f.containsKey('set')) {
     await notes.write(merged, f['set']!);
   }
+  final pushed = (f.containsKey('set') || f.containsKey('clear'))
+      ? await sync.sync()
+      : null;
   _ok({
+    'syncedVia': ?(pushed?.email),
     'id': e.id,
     'title': e.title,
     'note': await notes.read(merged),
@@ -757,6 +769,7 @@ Calenfi Agent CLI — JSON-интерфейс к локальному кален
   busy      --from ISO --to ISO                          интервалы занятости (free/busy)
   freeslots --from ISO --to ISO --duration MIN [--day-start 10 --day-end 20]
   note      --id ID [--set "текст" | --clear]            личная заметка к встрече (только в Calenfi)
+  notes-sync                                             синхронизировать заметки через Google Tasks
   create    --title T --start ISO --end ISO [--calendar ID|--account EMAIL]
             [--all-day (тогда --start/--end — даты, --end необязателен)]
             [--location L --description D --attendees a@x,b@y --room room@x

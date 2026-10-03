@@ -248,5 +248,8 @@
   "diagEmpty": "日志为空",
   "detNotes": "我的笔记",
   "detNotesHint": "议程、问题、准备事项",
-  "detNotesPrivate": "仅你可见：保存在 Calenfi 中，不会发送到日历或参与者。"
+  "detNotesPrivate": "仅你可见：保存在 Calenfi 中，不会发送到日历或参与者。",
+  "setNotesSync": "会议笔记",
+  "setNotesSyncVia": "通过 Google Tasks 在设备间同步：{email}",
+  "setNotesLocalOnly": "仅在此设备上。重新连接 Google 账户即可通过 Google Tasks 同步。"
 }

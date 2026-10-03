@@ -870,4 +870,16 @@ class L10nRu extends L10n {
   @override
   String get detNotesPrivate =>
       'Видно только вам: заметка хранится в Calenfi и не уходит ни в календарь, ни участникам.';
+
+  @override
+  String get setNotesSync => 'Заметки к встречам';
+
+  @override
+  String setNotesSyncVia(String email) {
+    return 'Синхронизируются между устройствами через Google Tasks: $email';
+  }
+
+  @override
+  String get setNotesLocalOnly =>
+      'Только на этом устройстве. Переподключите Google-аккаунт, чтобы они синхронизировались через Google Tasks.';
 }

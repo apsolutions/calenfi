@@ -123,6 +123,16 @@ class SettingsPanel extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const AccountsScreen())),
           ),
 
+          ListTile(
+            key: const ValueKey('settings-notes-sync'),
+            leading: const Icon(Icons.sticky_note_2_outlined),
+            title: Text(l10n.setNotesSync),
+            subtitle: Text(switch (ref.watch(notesSyncChannelProvider).value) {
+              final email? => l10n.setNotesSyncVia(email),
+              null => l10n.setNotesLocalOnly,
+            }),
+          ),
+
           const Divider(),
           _SectionHeader(l10n.setDiagnostics),
           ListTile(

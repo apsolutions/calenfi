@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.19] — 2026-10-03
+
+### Added
+- Meeting notes sync between devices through Google Tasks. Each note becomes
+  a task in a private list "Calenfi · заметки к встречам" of the user's
+  Google account: the meeting title and time as the task title, the note as
+  its text, and a service line with the keys that let Calenfi on another
+  device recognise the meeting. Google Tasks are private, so attendees still
+  never see the notes. Sync runs at start, a few seconds after an edit, every
+  five minutes, on return to the screen and in the Android background job;
+  the latest edit wins, and a note edited directly in Google Tasks comes back
+  to Calenfi. Settings show which account carries the notes.
+- Signing in to Google now also asks for access to Google Tasks. An account
+  connected earlier keeps working; reconnect it once on each device to turn
+  notes sync on. A token with Tasks access stored under the Tasks key of the
+  tt app is picked up as well.
+- CLI: `notes-sync`; `note` pulls before reading and pushes after writing.
+
+### Changed
+- Notes are stored one row per note with sync metadata. Notes written with
+  0.3.18 move over on first start and are uploaded on the first sync.
+
 ## [0.3.18] — 2026-10-03
 
 ### Added

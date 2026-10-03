@@ -1598,6 +1598,24 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.'**
   String get detNotesPrivate;
+
+  /// No description provided for @setNotesSync.
+  ///
+  /// In en, this message translates to:
+  /// **'Meeting notes'**
+  String get setNotesSync;
+
+  /// No description provided for @setNotesSyncVia.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced between devices via Google Tasks: {email}'**
+  String setNotesSyncVia(String email);
+
+  /// No description provided for @setNotesLocalOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Only on this device. Reconnect a Google account to sync them via Google Tasks.'**
+  String get setNotesLocalOnly;
 }
 
 class _L10nDelegate extends LocalizationsDelegate<L10n> {

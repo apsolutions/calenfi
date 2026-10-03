@@ -471,5 +471,9 @@
   "diagEmpty": "The log is empty",
   "detNotes": "My notes",
   "detNotesHint": "Agenda, questions, what to prepare",
-  "detNotesPrivate": "Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees."
+  "detNotesPrivate": "Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.",
+  "setNotesSync": "Meeting notes",
+  "setNotesSyncVia": "Synced between devices via Google Tasks: {email}",
+  "setNotesLocalOnly": "Only on this device. Reconnect a Google account to sync them via Google Tasks.",
+  "@setNotesSyncVia": {"placeholders": {"email": {"type": "String"}}}
 }

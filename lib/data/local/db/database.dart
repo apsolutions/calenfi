@@ -148,6 +148,7 @@ class AppDatabase extends _$AppDatabase {
         // версии) открывают ту же базу и не видят повода для миграции.
         beforeOpen: (_) async {
           await customStatement(kEventNotesDdl);
+          await customStatement(kMeetingNotesDdl);
         },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
@@ -244,6 +245,23 @@ CREATE TABLE IF NOT EXISTS event_notes (
   note_key TEXT NOT NULL PRIMARY KEY,
   body TEXT NOT NULL,
   updated_utc INTEGER NOT NULL
+)''';
+
+/// Заметки к встречам с данными синхронизации через Google Tasks (с 0.3.19).
+/// `event_notes` остаётся только как источник однократного переноса заметок
+/// версии 0.3.18.
+const kMeetingNotesDdl = '''
+CREATE TABLE IF NOT EXISTS meeting_notes (
+  id TEXT NOT NULL PRIMARY KEY,
+  note_keys TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  start_utc INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL,
+  updated_utc INTEGER NOT NULL,
+  task_id TEXT,
+  task_updated TEXT,
+  dirty INTEGER NOT NULL DEFAULT 1,
+  deleted INTEGER NOT NULL DEFAULT 0
 )''';
 
 /// Строка события вместе с её календарём и учётной записью.

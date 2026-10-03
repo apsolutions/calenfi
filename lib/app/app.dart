@@ -18,6 +18,7 @@ class CalenfiApp extends ConsumerWidget {
     ref.watch(agendaWidgetSyncProvider); // держим домашний виджет в синхроне
     ref.watch(notificationSyncProvider); // напоминания о начале встреч (FR-N)
     ref.watch(periodicSyncProvider); // регулярная автосинхронизация (FR-S2)
+    ref.watch(notesSyncLoopProvider); // личные заметки между устройствами
     return MaterialApp(
       title: 'Calenfi',
       debugShowCheckedModeBanner: false,

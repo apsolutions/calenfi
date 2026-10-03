@@ -109,5 +109,6 @@ Future<int> syncDueAccounts(ProviderContainer container) async {
     }
   }
   await engine.whenIdle();
+  await container.read(notesSyncProvider).sync();
   return started;
 }

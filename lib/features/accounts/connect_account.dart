@@ -134,6 +134,9 @@ class ConnectAccountService {
     'email',
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/meetings.space.created',
+    // Личные заметки к встречам синхронизируются между устройствами через
+    // отдельный список Google Tasks (см. NotesSync).
+    'https://www.googleapis.com/auth/tasks',
   ];
   static const _graphScopes = [
     'openid',
