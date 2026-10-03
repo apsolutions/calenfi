@@ -508,7 +508,7 @@ class L10nDe extends L10n {
   String get edNone => 'Keine';
 
   @override
-  String get edNotesHint => 'Notizen';
+  String get edNotesHint => 'Notizen – nur für Sie sichtbar';
 
   @override
   String edOccurrences(int count) {
@@ -852,14 +852,8 @@ class L10nDe extends L10n {
   String get diagEmpty => 'Das Protokoll ist leer';
 
   @override
-  String get detNotes => 'Meine Notizen';
-
-  @override
-  String get detNotesHint => 'Agenda, Fragen, Vorbereitung';
-
-  @override
   String get detNotesPrivate =>
-      'Nur für Sie sichtbar: bleibt in Calenfi und geht weder an den Kalender noch an Teilnehmer.';
+      'Bleibt in Calenfi und wird zwischen Ihren Geräten synchronisiert; geht nie an Kalender oder Teilnehmer.';
 
   @override
   String get setNotesSync => 'Notizen zu Terminen';

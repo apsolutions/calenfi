@@ -267,7 +267,7 @@
   "edNewEvent": "New event",
   "edNoEndDate": "No end date",
   "edNone": "None",
-  "edNotesHint": "Notes",
+  "edNotesHint": "Notes — only you see them",
   "edOccurrences": "{count, plural, one{{count} occurrence} other{{count} occurrences}}",
   "@edOccurrences": {
     "placeholders": {
@@ -469,11 +469,15 @@
   "diagCopied": "Log copied",
   "diagClear": "Clear log",
   "diagEmpty": "The log is empty",
-  "detNotes": "My notes",
-  "detNotesHint": "Agenda, questions, what to prepare",
-  "detNotesPrivate": "Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.",
+  "detNotesPrivate": "Stays in Calenfi and syncs between your devices; never sent to the calendar or attendees.",
   "setNotesSync": "Meeting notes",
   "setNotesSyncVia": "Synced between devices via Google Tasks: {email}",
   "setNotesLocalOnly": "Only on this device. Reconnect a Google account to sync them via Google Tasks.",
-  "@setNotesSyncVia": {"placeholders": {"email": {"type": "String"}}}
+  "@setNotesSyncVia": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  }
 }

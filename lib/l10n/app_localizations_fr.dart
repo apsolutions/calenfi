@@ -508,7 +508,7 @@ class L10nFr extends L10n {
   String get edNone => 'Aucune';
 
   @override
-  String get edNotesHint => 'Notes';
+  String get edNotesHint => 'Notes — visibles par vous seul';
 
   @override
   String edOccurrences(int count) {
@@ -852,14 +852,8 @@ class L10nFr extends L10n {
   String get diagEmpty => 'Le journal est vide';
 
   @override
-  String get detNotes => 'Mes notes';
-
-  @override
-  String get detNotesHint => 'Ordre du jour, questions, à préparer';
-
-  @override
   String get detNotesPrivate =>
-      'Visible par vous seul : reste dans Calenfi, n’est envoyée ni au calendrier ni aux participants.';
+      'Reste dans Calenfi et se synchronise entre vos appareils ; jamais envoyée au calendrier ni aux participants.';
 
   @override
   String get setNotesSync => 'Notes de réunion';

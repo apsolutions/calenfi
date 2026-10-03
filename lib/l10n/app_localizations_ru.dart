@@ -520,7 +520,7 @@ class L10nRu extends L10n {
   String get edNone => 'Нет';
 
   @override
-  String get edNotesHint => 'Заметки';
+  String get edNotesHint => 'Заметки — видно только вам';
 
   @override
   String edOccurrences(int count) {
@@ -862,14 +862,8 @@ class L10nRu extends L10n {
   String get diagEmpty => 'Журнал пуст';
 
   @override
-  String get detNotes => 'Мои заметки';
-
-  @override
-  String get detNotesHint => 'Повестка, вопросы, что подготовить';
-
-  @override
   String get detNotesPrivate =>
-      'Видно только вам: заметка хранится в Calenfi и не уходит ни в календарь, ни участникам.';
+      'Хранится в Calenfi и синхронизируется между вашими устройствами; ни в календарь, ни участникам не уходит.';
 
   @override
   String get setNotesSync => 'Заметки к встречам';

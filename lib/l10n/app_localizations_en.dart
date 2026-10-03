@@ -506,7 +506,7 @@ class L10nEn extends L10n {
   String get edNone => 'None';
 
   @override
-  String get edNotesHint => 'Notes';
+  String get edNotesHint => 'Notes — only you see them';
 
   @override
   String edOccurrences(int count) {
@@ -848,14 +848,8 @@ class L10nEn extends L10n {
   String get diagEmpty => 'The log is empty';
 
   @override
-  String get detNotes => 'My notes';
-
-  @override
-  String get detNotesHint => 'Agenda, questions, what to prepare';
-
-  @override
   String get detNotesPrivate =>
-      'Only you see this. It stays in Calenfi and is not sent to the calendar or to attendees.';
+      'Stays in Calenfi and syncs between your devices; never sent to the calendar or attendees.';
 
   @override
   String get setNotesSync => 'Meeting notes';

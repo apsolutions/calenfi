@@ -507,7 +507,7 @@ class L10nEs extends L10n {
   String get edNone => 'Ninguna';
 
   @override
-  String get edNotesHint => 'Notas';
+  String get edNotesHint => 'Notas: solo las ves tú';
 
   @override
   String edOccurrences(int count) {
@@ -850,14 +850,8 @@ class L10nEs extends L10n {
   String get diagEmpty => 'El registro está vacío';
 
   @override
-  String get detNotes => 'Mis notas';
-
-  @override
-  String get detNotesHint => 'Agenda, preguntas, qué preparar';
-
-  @override
   String get detNotesPrivate =>
-      'Solo tú la ves: se queda en Calenfi y no se envía al calendario ni a los asistentes.';
+      'Se queda en Calenfi y se sincroniza entre tus dispositivos; nunca va al calendario ni a los asistentes.';
 
   @override
   String get setNotesSync => 'Notas de reuniones';

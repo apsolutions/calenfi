@@ -14,6 +14,7 @@ import '../../domain/models/enums.dart';
 import '../../data/secure/credential_source.dart';
 import '../../l10n/app_localizations.dart';
 import '../accounts/add_account_sheet.dart';
+import '../../domain/models/merged_event.dart';
 import '../calendar/calendar_state.dart';
 import '../calendar/pending_edits.dart';
 import '../calendar/recurrence_scope_dialog.dart';
@@ -86,6 +87,9 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
   late final TextEditingController _location;
   late final TextEditingController _notes;
 
+  /// Текст заметки при открытии: пишем, только если его изменили.
+  String _notesLoaded = '';
+
   late bool _allDay;
   late DateTime _start;
   late DateTime _end;
@@ -111,7 +115,20 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     final e = widget.existing;
     _title = TextEditingController(text: e?.title ?? '');
     _location = TextEditingController(text: e?.location ?? '');
-    _notes = TextEditingController(text: e?.description ?? '');
+    // «Заметки» — личные заметки Calenfi (повестка, подготовка), а не
+    // описание события: описание уходит участникам, заметки — нет. Описание
+    // провайдера редактор не трогает и при сохранении оставляет как было.
+    _notes = TextEditingController();
+    if (e != null) {
+      ref
+          .read(notesRepositoryProvider)
+          .read(MergedEvent(groupId: e.id, primary: e, sources: [e]))
+          .then((text) {
+        if (!mounted || _notes.text.isNotEmpty) return;
+        _notesLoaded = text ?? '';
+        _notes.text = _notesLoaded;
+      });
+    }
     _allDay = e?.allDay ?? false;
     final base = widget.initialDay ?? DateTime.now();
     _start =
@@ -239,11 +256,15 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
               _inviteesSection(),
               const SizedBox(height: 8),
               TextField(
+                key: const ValueKey('editor-private-notes'),
                 controller: _notes,
-                maxLines: 4,
+                minLines: 2,
+                maxLines: 8,
                 decoration: InputDecoration(
                   hintText: l10n.edNotesHint,
-                  icon: const Icon(Icons.notes_outlined),
+                  helperText: l10n.detNotesPrivate,
+                  helperMaxLines: 2,
+                  icon: const Icon(Icons.lock_outline),
                 ),
               ),
             ],
@@ -852,7 +873,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
       timeZoneId: existing?.timeZoneId ?? 'Europe/Moscow',
       allDay: _allDay,
       location: _location.text.trim().isEmpty ? null : _location.text.trim(),
-      description: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+      description: existing?.description,
       attendees: attendees,
       recurrenceRule: _recurrenceRule,
       recurrenceId: existing?.recurrenceId,
@@ -874,8 +895,22 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
     // «Отменить» вернёт исходное (для нового — удалит).
     final delay = ref.read(commitDelayProvider);
     final pending = ref.read(pendingEditsProvider.notifier);
+    // Заметку пишем под ключами уже изменённой встречи (новые название и
+    // время); прежние ключи заметки сохраняются, так что она не теряется.
+    Future<void> saveNote(CalendarEvent saved) async {
+      if (_notes.text.trimRight() == _notesLoaded.trimRight()) return;
+      await ref.read(notesRepositoryProvider).write(
+          MergedEvent(groupId: saved.id, primary: saved, sources: [
+            saved,
+            if (existing != null && existing.id != saved.id) existing,
+          ]),
+          _notes.text);
+    }
+
     if (_isNew) {
-      await pending.stage(event.withId(const Uuid().v4()), delay, op: 'create');
+      final created = event.withId(const Uuid().v4());
+      await pending.stage(created, delay, op: 'create');
+      await saveNote(created);
     } else {
       // Повторяющееся событие: правка вхождения и правка серии — разные
       // операции у провайдера, выбор делает пользователь (см. диалог).
@@ -899,6 +934,7 @@ class _EventEditorScreenState extends ConsumerState<EventEditorScreen> {
         original: existing,
         scope: scope,
       );
+      await saveNote(event);
     }
     if (mounted) Navigator.pop(context);
   }

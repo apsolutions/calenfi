@@ -134,9 +134,9 @@ class _EventDetails extends ConsumerWidget {
                     trailing: _responseLabel(l10n, src.myResponse)),
             ],
 
-            // Личные заметки: повестка и подготовка, видны только мне.
-            const SizedBox(height: 12),
-            PrivateNotesField(event: event),
+            // Личная заметка (повестка, подготовка): только чтение, правится
+            // в редакторе встречи.
+            PrivateNoteView(event: event),
 
             // участники-люди и их статусы подтверждения (FR-R3); переговорка
             // (ресурс) показана отдельной строкой выше.

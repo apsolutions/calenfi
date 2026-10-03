@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.20] — 2026-10-03
+
+### Changed
+- One notes field instead of two. The editor's **Notes** field is now the
+  private meeting note (it used to edit the event description, which goes to
+  attendees), and the separate "My notes" field in the event card is gone:
+  the card shows the note read-only and it is edited in the event editor. The
+  editor no longer edits the provider's description and keeps it unchanged
+  when saving.
+
 ## [0.3.19] — 2026-10-03
 
 ### Added
