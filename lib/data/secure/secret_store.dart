@@ -269,7 +269,13 @@ class SecretStore {
       for (final f in tokensDir.listSync().whereType<File>()) {
         final name = f.uri.pathSegments.last;
         if (!name.endsWith('.json')) continue;
-        if (!name.startsWith('gcal_') && !name.startsWith('graph_')) continue;
+        // gtasks_ — токен с доступом к Google Tasks (заметки к встречам),
+        // формат приложения tt.
+        if (!name.startsWith('gcal_') &&
+            !name.startsWith('graph_') &&
+            !name.startsWith('gtasks_')) {
+          continue;
+        }
         out[tokenKey(name.substring(0, name.length - 5))] = f
             .readAsStringSync();
       }
