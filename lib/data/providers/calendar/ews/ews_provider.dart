@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:xml/xml.dart';
 
 import '../../../../domain/models/account.dart';
+import '../../../../domain/models/attendee.dart';
 import '../../../../domain/models/calendar.dart';
 import '../../../../domain/models/calendar_event.dart';
 import '../../../../domain/models/enums.dart';
@@ -91,24 +92,29 @@ class EwsProvider implements CalendarProvider {
       final ev = _toEvent(acc, cal, it);
       if (ev != null) out.add(ev);
     }
-    // FindItem НЕ возвращает Body (ограничение EWS) — дотягиваем тела (детали +
-    // внешние ссылки) отдельным GetItem по ItemId.
-    final bodies = await _fetchBodies(
+    // FindItem НЕ возвращает ни Body, ни участников (ограничение EWS: только
+    // «первый класс» свойств) — дотягиваем их отдельным GetItem по ItemId.
+    // Раньше участники не запрашивались вовсе: у встреч Exchange список гостей
+    // был пустым, и казалось, что приглашения не ушли.
+    final details = await _fetchDetails(
         out.map((e) => e.source.providerEventId).whereType<String>().toList());
-    if (bodies.isEmpty) return out;
+    if (details.isEmpty) return out;
     return [
       for (final e in out)
-        (e.source.providerEventId != null &&
-                bodies[e.source.providerEventId] != null)
-            ? e.copyWith(description: bodies[e.source.providerEventId!])
-            : e,
+        if (details[e.source.providerEventId] case final d?)
+          e.copyWith(
+            description: d.body ?? e.description,
+            attendees: d.attendees.isEmpty ? e.attendees : d.attendees,
+          )
+        else
+          e,
     ];
   }
 
-  /// Тянет тела (Body) по ItemId батчами — FindItem их не отдаёт. Возвращает
-  /// map itemId → очищенный от HTML текст. Порядок ответа = порядок запроса.
-  Future<Map<String, String>> _fetchBodies(List<String> ids) async {
-    final result = <String, String>{};
+  /// Тянет тело и участников по ItemId батчами — FindItem их не отдаёт.
+  /// Порядок ответа = порядок запроса.
+  Future<Map<String, _EwsDetails>> _fetchDetails(List<String> ids) async {
+    final result = <String, _EwsDetails>{};
     const chunkSize = 50;
     for (var i = 0; i < ids.length; i += chunkSize) {
       final chunk = ids.sublist(i, i + chunkSize > ids.length ? ids.length : i + chunkSize);
@@ -118,7 +124,10 @@ class EwsProvider implements CalendarProvider {
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
 <soap:Header><t:RequestServerVersion Version="Exchange2010_SP2"/></soap:Header>
 <soap:Body><m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>
-<t:AdditionalProperties><t:FieldURI FieldURI="item:Body"/></t:AdditionalProperties>
+<t:AdditionalProperties><t:FieldURI FieldURI="item:Body"/>
+<t:FieldURI FieldURI="calendar:Organizer"/><t:FieldURI FieldURI="calendar:RequiredAttendees"/>
+<t:FieldURI FieldURI="calendar:OptionalAttendees"/><t:FieldURI FieldURI="calendar:Resources"/>
+</t:AdditionalProperties>
 </m:ItemShape><m:ItemIds>$idsXml</m:ItemIds></m:GetItem></soap:Body></soap:Envelope>''';
       try {
         final xml = await _soap(
@@ -131,15 +140,78 @@ class EwsProvider implements CalendarProvider {
           if (j >= chunk.length) break;
           final b =
               msg.findAllElements('Body', namespace: _tns).firstOrNull?.innerText;
-          if (b != null) {
-            final t = _stripHtml(b);
-            if (t.isNotEmpty) result[chunk[j]] = t;
-          }
+          final t = b == null ? null : _stripHtml(b);
+          result[chunk[j]] = _EwsDetails(
+            body: (t == null || t.isEmpty) ? null : t,
+            attendees: parseAttendees(msg),
+          );
           j++;
         }
-      } catch (_) {/* тела необязательны — без них просто нет описания */}
+      } catch (_) {/* детали необязательны — без них нет описания и гостей */}
     }
     return result;
+  }
+
+  /// Участники из ответа GetItem: организатор, обязательные, необязательные
+  /// и ресурсы (переговорки), с их ответами.
+  static List<Attendee> parseAttendees(XmlElement item) {
+    Attendee? fromMailbox(XmlElement? mb,
+        {ResponseStatus response = ResponseStatus.needsAction,
+        bool organizer = false,
+        bool optional = false,
+        bool resource = false}) {
+      if (mb == null) return null;
+      String? f(String n) =>
+          mb.findElements(n, namespace: _tns).firstOrNull?.innerText.trim();
+      final email = f('EmailAddress') ?? '';
+      // Внутренние адреса Exchange иногда приходят как legacy DN (/O=…), без
+      // SMTP — такой адрес бесполезен для показа и приглашений.
+      if (!email.contains('@')) return null;
+      final name = f('Name');
+      return Attendee(
+        email: email,
+        displayName: (name == null || name.isEmpty || name == email) ? null : name,
+        response: response,
+        isOrganizer: organizer,
+        optional: optional,
+        isResource: resource,
+      );
+    }
+
+    ResponseStatus resp(String? t) => switch (t) {
+          'Organizer' => ResponseStatus.organizer,
+          'Accept' => ResponseStatus.accepted,
+          'Decline' => ResponseStatus.declined,
+          'Tentative' => ResponseStatus.tentative,
+          _ => ResponseStatus.needsAction,
+        };
+
+    final out = <Attendee>[];
+    final seen = <String>{};
+    void add(Attendee? a) {
+      if (a != null && seen.add(a.email.toLowerCase())) out.add(a);
+    }
+
+    final org = item.findAllElements('Organizer', namespace: _tns).firstOrNull;
+    add(fromMailbox(org?.findElements('Mailbox', namespace: _tns).firstOrNull,
+        response: ResponseStatus.organizer, organizer: true));
+    for (final (group, optional, resource) in const [
+      ('RequiredAttendees', false, false),
+      ('OptionalAttendees', true, false),
+      ('Resources', false, true),
+    ]) {
+      for (final g in item.findAllElements(group, namespace: _tns)) {
+        for (final a in g.findElements('Attendee', namespace: _tns)) {
+          add(fromMailbox(a.findElements('Mailbox', namespace: _tns).firstOrNull,
+              response: resp(a.findElements('ResponseType', namespace: _tns)
+                  .firstOrNull
+                  ?.innerText),
+              optional: optional,
+              resource: resource));
+        }
+      }
+    }
+    return out;
   }
 
   @override
@@ -451,4 +523,11 @@ ${_attendeesXml(attendees)}
   }
 
   static String _z(DateTime d) => '${d.toUtc().toIso8601String().split('.').first}Z';
+}
+
+/// Тело и участники события из GetItem.
+class _EwsDetails {
+  const _EwsDetails({this.body, this.attendees = const []});
+  final String? body;
+  final List<Attendee> attendees;
 }

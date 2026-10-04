@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.21] — 2026-10-04
+
+### Fixed
+- Exchange (EWS) meetings came without attendees. FindItem does not return
+  them, and the follow-up GetItem asked only for the body, so a meeting with
+  invitations that had actually been sent looked as if nobody was invited.
+  GetItem now also asks for the organizer, required and optional attendees and
+  resources, with each person's response; legacy Exchange addresses without
+  an SMTP form are skipped.
+
 ## [0.3.20] — 2026-10-03
 
 ### Changed
