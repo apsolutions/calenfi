@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.23] — 2026-10-05
+
+### Added
+- A star on meetings I organize. In the day, week and month grid a meeting
+  that I called and that has other people on it carries a small star next to
+  its time, so my own meetings stand out from invitations.
+
+### Fixed
+- Office 365 meetings did not show who organized them: Graph returns the
+  organizer separately from the attendees and Calenfi did not ask for it. The
+  organizer now opens the attendee list in the event card with the organizer
+  mark, and is never sent back to Graph as an attendee.
+
 ## [0.3.22] — 2026-10-05
 
 ### Fixed

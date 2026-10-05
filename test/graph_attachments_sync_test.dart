@@ -183,4 +183,29 @@ void main() {
     expect(second.single.attachments.single.fileName, 'План-secret.pdf');
     expect(graph.attachmentRequests, ['secret', 'secret']);
   });
+
+  // «Календарь должен показывать иконку для организатора встречи»: Graph
+  // отдаёт организатора отдельно от участников, и он терялся.
+  test('организатор Office 365 попадает в участники с отметкой', () async {
+    graph.events = [
+      {
+        ..._event('m1', day: 6),
+        'organizer': {
+          'emailAddress': {'name': 'Мария', 'address': 'maria@example.test'}
+        },
+        'attendees': [
+          {
+            'type': 'required',
+            'status': {'response': 'accepted'},
+            'emailAddress': {'name': 'Я', 'address': 'user@example.test'}
+          },
+        ],
+      },
+    ];
+    final e = (await provider.fetchEvents(acc, cal, range)).single;
+    expect(e.attendees.first.email, 'maria@example.test');
+    expect(e.attendees.first.isOrganizer, isTrue);
+    expect(e.attendees.first.response, ResponseStatus.organizer);
+    expect(e.attendees, hasLength(2));
+  });
 }

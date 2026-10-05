@@ -96,7 +96,7 @@ class GraphProvider implements CalendarProvider {
     // символов) → длинные ссылки (Telemost и т.п.) режутся. body.content —
     // полный текст, из него берём конференцию.
     const select =
-        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type,hasAttachments,changeKey';
+        'id,subject,start,end,isAllDay,location,bodyPreview,body,attendees,organizer,responseStatus,showAs,onlineMeeting,isCancelled,webLink,seriesMasterId,type,hasAttachments,changeKey';
     String? url =
         '$_base/me/calendars/${_calId(cal)}/calendarView?startDateTime=${range.startUtc.toUtc().toIso8601String()}&endDateTime=${range.endUtc.toUtc().toIso8601String()}&\$select=$select&\$top=200';
     while (url != null) {
@@ -377,6 +377,25 @@ class GraphProvider implements CalendarProvider {
         isResource: m['type'] == 'resource',
       ));
     }
+    // Организатора Graph отдаёт отдельно от участников: без него в карточке
+    // встречи было не видно, кто её созвал.
+    final orgMail = e['organizer']?['emailAddress'] as Map<String, dynamic>?;
+    final orgEmail = (orgMail?['address'] ?? '').toString();
+    if (orgEmail.contains('@')) {
+      final i = attendees.indexWhere(
+          (a) => a.email.toLowerCase() == orgEmail.toLowerCase());
+      final organizer = Attendee(
+        email: orgEmail,
+        displayName: orgMail?['name'] as String?,
+        response: ResponseStatus.organizer,
+        isOrganizer: true,
+      );
+      if (i >= 0) {
+        attendees[i] = organizer;
+      } else {
+        attendees.insert(0, organizer);
+      }
+    }
     final myResp = _resp(e['responseStatus']?['response'] as String?);
 
     Conference? conf;
@@ -443,9 +462,10 @@ class GraphProvider implements CalendarProvider {
         'recurrence': ?rruleToGraphRecurrence(e.recurrenceRule!, e.startUtc),
       if (e.location != null) 'location': {'displayName': e.location},
       if (body != null) 'body': {'contentType': 'text', 'content': body},
-      if (e.attendees.isNotEmpty)
+      // Организатор в Graph — отдельное поле, в участники его не отправляем.
+      if (e.attendees.any((a) => !a.isOrganizer))
         'attendees': [
-          for (final a in e.attendees)
+          for (final a in e.attendees.where((a) => !a.isOrganizer))
             {
               'emailAddress': {'address': a.email},
               'type': a.isResource ? 'resource' : 'required',

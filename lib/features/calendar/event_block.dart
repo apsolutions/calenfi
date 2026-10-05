@@ -73,6 +73,16 @@ class EventBlock extends ConsumerWidget {
                       if (e.conference != null)
                         Icon(Icons.videocam,
                             size: 11, color: color.withValues(alpha: 0.9)),
+                      // Я созвал эту встречу (есть кого приглашать).
+                      if (e.myResponse == ResponseStatus.organizer &&
+                          e.people.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 2),
+                          child: Icon(Icons.star_rounded,
+                              key: const ValueKey('organizer-icon'),
+                              size: 11,
+                              color: color.withValues(alpha: 0.9)),
+                        ),
                       if (hasNote)
                         Padding(
                           padding: const EdgeInsets.only(left: 2),
