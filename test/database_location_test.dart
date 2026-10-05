@@ -629,6 +629,37 @@ void main() {
     },
   );
 
+  // Fold 7, 05.10: приложение открыли с виджета, пока фоновая синхронизация в
+  // том же процессе фиксировала запись. Проверка базы получила «database is
+  // locked», сочла файл чужим, и Calenfi до перезапуска показывал «Ошибка
+  // инициализации: refusing to create an empty database».
+  test('a database locked by a writer is used, not refused', () async {
+    final canonicalDirectory = Directory(
+      p.join(temporaryRoot.path, kApplicationId),
+    );
+    final canonical = File(p.join(canonicalDirectory.path, kDbFileName));
+    _writeCalenfiDatabase(canonical, 'my event');
+    await prepareDatabaseFile(
+      targetDirectory: canonicalDirectory,
+      legacyDirectories: const <Directory>[],
+    ); // пишет маркер миграции
+
+    final writer = sqlite3.open(canonical.path);
+    try {
+      writer.execute('BEGIN EXCLUSIVE');
+      writer.execute("INSERT INTO accounts VALUES ('during lock')");
+      final result = await prepareDatabaseFile(
+        targetDirectory: canonicalDirectory,
+        legacyDirectories: const <Directory>[],
+      ).timeout(const Duration(seconds: 30));
+      expect(result.path, canonical.path);
+    } finally {
+      writer.execute('ROLLBACK');
+      writer.dispose();
+    }
+    expect(_readValues(canonical), <String>['my event']);
+  });
+
   test(
     'refuses a silent empty database when every source is corrupt',
     () async {

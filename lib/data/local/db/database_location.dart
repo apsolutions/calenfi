@@ -265,6 +265,17 @@ Future<File> _prepareDatabaseFileLocked({
   final marker = File(p.join(targetDirectory.path, kDbMigrationMarkerFileName));
   final targetState = await _inspectDatabase(target);
 
+  // База уже есть, но прямо сейчас её держит другое соединение того же
+  // приложения: на Android это фоновая синхронизация в том же процессе. Раньше
+  // занятость считалась «не базой Calenfi», запуск падал с «refusing to create
+  // an empty database», и приложение не открывалось до перезапуска процесса.
+  if (targetState.busy) {
+    if (await marker.exists()) return target;
+    // Занят, но маркера нет (самый первый запуск после переноса): решать за
+    // занятым файлом нельзя — его могли бы заменить копией старой базы.
+    throw FileSystemException('Calenfi database is busy; try again', target.path);
+  }
+
   if (targetState.isCalenfi &&
       (await marker.exists() || targetState.hasUserData)) {
     await _writeMarkerBestEffort(marker);
@@ -417,6 +428,9 @@ Future<_DatabaseState> _inspectDatabase(File file) async {
   Database? database;
   try {
     database = sqlite3.open(file.path, mode: OpenMode.readOnly);
+    // Пишущее соединение (фоновая синхронизация) на время фиксации запирает
+    // файл: без ожидания проверка сразу падала с «database is locked».
+    database.execute('PRAGMA busy_timeout = 10000');
     final check = database.select('PRAGMA quick_check');
     if (check.length != 1 || check.single.values.single != 'ok') {
       return _DatabaseState.invalid(file, nonEmpty: true);
@@ -443,6 +457,11 @@ Future<_DatabaseState> _inspectDatabase(File file) async {
       contentFreshness: _databaseContentFreshness(database),
       familyModifiedAt: familyModifiedAt,
     );
+  } on SqliteException catch (e) {
+    // SQLITE_BUSY / SQLITE_LOCKED: файл занят, а не испорчен.
+    final code = e.extendedResultCode & 0xff;
+    if (code == 5 || code == 6) return _DatabaseState.busyFile(file);
+    return _DatabaseState.invalid(file, nonEmpty: true);
   } on Object {
     return _DatabaseState.invalid(file, nonEmpty: true);
   } finally {
@@ -918,7 +937,19 @@ class _DatabaseState {
     required this.hasUserData,
     required this.contentFreshness,
     required this.familyModifiedAt,
+    this.busy = false,
   });
+
+  /// Файл занят другим соединением, проверить содержимое не удалось.
+  factory _DatabaseState.busyFile(File file) => _DatabaseState._(
+    file: file,
+    nonEmpty: true,
+    isCalenfi: false,
+    hasUserData: false,
+    contentFreshness: null,
+    familyModifiedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+    busy: true,
+  );
 
   factory _DatabaseState.missing(File file) => _DatabaseState._(
     file: file,
@@ -956,6 +987,7 @@ class _DatabaseState {
   final File file;
   final bool nonEmpty;
   final bool isCalenfi;
+  final bool busy;
   final bool hasUserData;
   final DateTime? contentFreshness;
   final DateTime familyModifiedAt;

@@ -27,10 +27,21 @@ QueryExecutor _openConnection() {
       dir = await getApplicationSupportDirectory();
       legacyDirectories = _legacyDesktopDirectories(dir);
     }
-    final file = await prepareDatabaseFile(
-      targetDirectory: dir,
-      legacyDirectories: legacyDirectories,
-    );
+    // База занята другим соединением (самый первый запуск, пока фоновая
+    // синхронизация пишет): ждём и пробуем снова, а не падаем навсегда.
+    late final File file;
+    for (var attempt = 1;; attempt++) {
+      try {
+        file = await prepareDatabaseFile(
+          targetDirectory: dir,
+          legacyDirectories: legacyDirectories,
+        );
+        break;
+      } on FileSystemException catch (e) {
+        if (!e.message.contains('busy') || attempt >= 10) rethrow;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
     // Фоновая синхронизация открывает базу вторым соединением из того же
     // процесса. Без ожидания SQLite отвечает «database is locked» сразу, как
     // только второе соединение держит транзакцию записи.

@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.22] — 2026-10-05
+
+### Fixed
+- Opening the app (for example from the home-screen widget) while the Android
+  background sync was writing failed with "initialisation error: No valid
+  Calenfi database found; refusing to create an empty database", and the app
+  stayed broken until its process was restarted. The startup check opened the
+  database without waiting for the lock, got "database is locked" and took the
+  busy file for a foreign one. The check now waits for the lock, a busy
+  database that is already marked as Calenfi's is used as is, never replaced
+  by a legacy copy, and opening retries for a while instead of failing for
+  good.
+
 ## [0.3.21] — 2026-10-04
 
 ### Fixed
