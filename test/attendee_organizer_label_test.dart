@@ -1,5 +1,6 @@
-// «Калыкулова Гульназ — you're the organizer, но я же не Гульназ!»: строка
-// участника-организатора подписывалась фразой про меня.
+// Жалоба: у строки чужого организатора стояло «you're the organizer», как
+// будто организатор я: строка участника-организатора подписывалась фразой про
+// мой собственный ответ.
 
 import 'package:calenfi/app/providers.dart';
 import 'package:calenfi/data/local/db/database.dart';
@@ -29,7 +30,7 @@ void main() {
       endUtc: start.add(const Duration(hours: 1)),
       myResponse: ResponseStatus.needsAction,
       attendees: const [
-        Attendee(email: 'org@example.test', displayName: 'Гульназ', response: ResponseStatus.organizer, isOrganizer: true),
+        Attendee(email: 'org@example.test', displayName: 'Анна', response: ResponseStatus.organizer, isOrganizer: true),
         Attendee(email: 'me@example.test', displayName: 'Я'),
       ],
       source: const EventSource(accountId: 'acc-hse', calendarId: 'c'),
@@ -54,7 +55,7 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
 
-    final l10n = L10n.of(tester.element(find.text('Гульназ')));
+    final l10n = L10n.of(tester.element(find.text('Анна')));
     expect(find.text(l10n.detResponseOrganizer), findsNothing);
     expect(find.text(l10n.detOrganizer), findsOneWidget);
 
