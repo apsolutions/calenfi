@@ -959,8 +959,12 @@ class _AttendeeRowState extends State<_AttendeeRow> {
               ],
             ),
           ),
-          Text(_responseLabel(l10n, a.response),
-              style: TextStyle(color: color.withValues(alpha: 0.9), fontSize: 11)),
+          // У чужой строки «Вы организатор» читалось как будто организатор я:
+          // о том, кто созвал встречу, уже говорит метка «организатор» у имени.
+          if (a.response != ResponseStatus.organizer)
+            Text(_responseLabel(l10n, a.response),
+                style:
+                    TextStyle(color: color.withValues(alpha: 0.9), fontSize: 11)),
         ]),
       ),
     );

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.24] — 2026-10-06
+
+### Fixed
+- In the event card the organizer's row said "You're the organizer" next to
+  someone else's name: the attendee list reused the label written for my own
+  response. The organizer row now carries only the "organizer" mark.
+
 ## [0.3.23] — 2026-10-05
 
 ### Added
