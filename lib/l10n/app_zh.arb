@@ -1,4 +1,5 @@
 {
+  "setInterfaceScale": "界面缩放",
   "@@locale": "zh",
   "accAddAccount": "添加账户",
   "accAppPassword": "应用专用密码",

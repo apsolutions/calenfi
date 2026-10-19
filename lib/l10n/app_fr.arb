@@ -1,4 +1,5 @@
 {
+  "setInterfaceScale": "Échelle de l’interface",
   "@@locale": "fr",
   "accAddAccount": "Ajouter un compte",
   "accAppPassword": "Mot de passe d'application",

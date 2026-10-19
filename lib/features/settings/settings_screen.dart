@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/version.dart';
 import '../../app/locale_provider.dart';
+import '../../app/interface_scale.dart';
 import '../../app/providers.dart';
 import '../../data/repositories/account_repository.dart';
 import '../../domain/models/account.dart';
@@ -61,6 +62,25 @@ class SettingsPanel extends ConsumerWidget {
 
           const Divider(),
           _SectionHeader(l10n.setView),
+          if (supportsInterfaceScale)
+            ListTile(
+              title: Text(l10n.setInterfaceScale),
+              trailing: DropdownButton<double>(
+                value: ref.watch(interfaceScaleProvider),
+                onChanged: (value) {
+                  if (value != null) {
+                    ref.read(interfaceScaleProvider.notifier).set(value);
+                  }
+                },
+                items: [
+                  for (final scale in interfaceScales)
+                    DropdownMenuItem(
+                      value: scale,
+                      child: Text('${(scale * 100).round()}%'),
+                    ),
+                ],
+              ),
+            ),
           SwitchListTile(
             title: Text(l10n.setShowMonth),
             subtitle: Text(l10n.setShowMonthSubtitle),

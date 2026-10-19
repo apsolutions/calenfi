@@ -1,4 +1,5 @@
 {
+  "setInterfaceScale": "Oberflächenskalierung",
   "@@locale": "de",
   "accAddAccount": "Konto hinzufügen",
   "accAppPassword": "App-Passwort",

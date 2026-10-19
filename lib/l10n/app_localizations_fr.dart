@@ -9,6 +9,9 @@ class L10nFr extends L10n {
   L10nFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get setInterfaceScale => 'Échelle de l’interface';
+
+  @override
   String get accAddAccount => 'Ajouter un compte';
 
   @override

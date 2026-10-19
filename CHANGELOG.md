@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Desktop interface scaling from 100% to 200%, saved between launches.
 - Accept, decline and tentative responses to CalDAV invitations on servers
   supporting automatic scheduling.
 

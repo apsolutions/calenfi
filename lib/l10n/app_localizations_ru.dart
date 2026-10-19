@@ -9,6 +9,9 @@ class L10nRu extends L10n {
   L10nRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get setInterfaceScale => 'Масштаб интерфейса';
+
+  @override
   String get accAddAccount => 'Добавить учётную запись';
 
   @override

@@ -105,6 +105,12 @@ abstract class L10n {
     Locale('zh'),
   ];
 
+  /// No description provided for @setInterfaceScale.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface scale'**
+  String get setInterfaceScale;
+
   /// No description provided for @accAddAccount.
   ///
   /// In en, this message translates to:

@@ -9,6 +9,9 @@ class L10nDe extends L10n {
   L10nDe([String locale = 'de']) : super(locale);
 
   @override
+  String get setInterfaceScale => 'Oberflächenskalierung';
+
+  @override
   String get accAddAccount => 'Konto hinzufügen';
 
   @override
