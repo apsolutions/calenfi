@@ -95,6 +95,225 @@ X-OTHER-PRESERVED:yes\r
 END:VEVENT\r
 END:VCALENDAR''';
 
+  test(
+    'cancel moved occurrence excludes original slot and removes its exception',
+    () async {
+      final adapter = _RecordingAdapter(
+        (options) => options.method == 'GET'
+            ? ResponseBody.fromString(
+                originalIcs,
+                200,
+                headers: {
+                  'etag': ['fresh-etag'],
+                },
+              )
+            : ResponseBody.fromString('', 204),
+      );
+      final provider = CalDavProvider(
+        account: account,
+        password: 'x',
+        dio: _dioWith(adapter),
+      );
+      final recurrenceId = DateTime.utc(
+        2026,
+        9,
+        2,
+        10,
+      ).millisecondsSinceEpoch.toString();
+      final moved = CalendarEvent(
+        id: 'acc-yandex:events-10922764:series-uid:$recurrenceId',
+        calendarId: calendar.id,
+        title: 'Moved',
+        startUtc: DateTime.utc(2026, 9, 2, 11),
+        endUtc: DateTime.utc(2026, 9, 2, 12),
+        recurrenceRule: 'FREQ=DAILY;COUNT=3',
+        recurrenceId: recurrenceId,
+        source: EventSource(
+          accountId: 'acc-yandex',
+          calendarId: calendar.id,
+          providerEventId: href,
+          etag: 'stale',
+        ),
+      );
+      await provider.deleteEvent(account, moved, RecurrenceScope.thisOnly);
+      expect(adapter.requests.map((r) => r.method), ['GET', 'PUT']);
+      final put = adapter.requests.last;
+      expect(put.headers['If-Match'], 'fresh-etag');
+      expect(put.body, contains('EXDATE:20260902T100000Z'));
+      expect(put.body, isNot(contains('RECURRENCE-ID:20260902T100000Z')));
+      expect(put.body, contains('RRULE:FREQ=DAILY;COUNT=3'));
+      expect(put.body, contains('X-MASTER-PRESERVED:yes'));
+    },
+  );
+
+  for (final scope in [
+    RecurrenceScope.thisOnly,
+    RecurrenceScope.thisAndFollowing,
+  ]) {
+    for (final allDay in [false, true]) {
+      test(
+        'cancel $scope ${allDay ? "all-day" : "timed"} survives pull and preserves other UID',
+        () async {
+          final hour = allDay ? 0 : 10;
+          final original = DateTime.utc(2026, 9, 2, hour);
+          var stored = allDay
+              ? originalIcs
+                    .replaceAll(
+                      'DTSTART:20260901T100000Z',
+                      'DTSTART;VALUE=DATE:20260901',
+                    )
+                    .replaceAll(
+                      'DTEND:20260901T110000Z',
+                      'DTEND;VALUE=DATE:20260902',
+                    )
+                    .replaceAll(
+                      'RECURRENCE-ID:20260902T100000Z',
+                      'RECURRENCE-ID;VALUE=DATE:20260902',
+                    )
+                    .replaceAll(
+                      'DTSTART:20260902T110000Z',
+                      'DTSTART;VALUE=DATE:20260904',
+                    )
+                    .replaceAll(
+                      'DTEND:20260902T120000Z',
+                      'DTEND;VALUE=DATE:20260905',
+                    )
+              : originalIcs;
+          stored = stored.replaceFirst(
+            'END:VCALENDAR',
+            'BEGIN:VEVENT\r\nUID:unrelated\r\nDTSTART:20260901T160000Z\r\nDTEND:20260901T170000Z\r\nSUMMARY:Unrelated\r\nEND:VEVENT\r\nEND:VCALENDAR',
+          );
+          final adapter = _RecordingAdapter((o) {
+            if (o.method == 'GET') {
+              return ResponseBody.fromString(
+                stored,
+                200,
+                headers: {
+                  'etag': ['fresh'],
+                },
+              );
+            }
+            if (o.method == 'PUT') {
+              stored = o.data.toString();
+              return ResponseBody.fromString('', 204);
+            }
+            if (o.method == 'REPORT') {
+              return ResponseBody.fromString(
+                '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>$href</d:href><d:propstat><d:prop><d:getetag>next</d:getetag><c:calendar-data><![CDATA[$stored]]></c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>',
+                207,
+              );
+            }
+            throw StateError('Unexpected method: ${o.method}');
+          });
+          final provider = CalDavProvider(
+            account: account,
+            password: 'x',
+            dio: _dioWith(adapter),
+          );
+          final rid = original.millisecondsSinceEpoch.toString();
+          final moved = CalendarEvent(
+            id: 'acc-yandex:events-10922764:series-uid:$rid',
+            calendarId: calendar.id,
+            title: 'Moved',
+            startUtc: allDay
+                ? DateTime.utc(2026, 9, 4)
+                : DateTime.utc(2026, 9, 2, 11),
+            endUtc: allDay
+                ? DateTime.utc(2026, 9, 5)
+                : DateTime.utc(2026, 9, 2, 12),
+            allDay: allDay,
+            recurrenceRule: 'FREQ=DAILY;COUNT=3',
+            recurrenceId: rid,
+            source: EventSource(
+              accountId: account.id,
+              calendarId: calendar.id,
+              providerEventId: href,
+            ),
+          );
+          await provider.deleteEvent(account, moved, scope);
+          expect(stored, contains('UID:unrelated'));
+          expect(stored, isNot(contains('X-OTHER-PRESERVED:yes')));
+          if (scope == RecurrenceScope.thisOnly) {
+            expect(
+              stored,
+              contains(
+                allDay
+                    ? 'EXDATE;VALUE=DATE:20260902'
+                    : 'EXDATE:20260902T100000Z',
+              ),
+            );
+          } else {
+            expect(
+              stored,
+              contains(allDay ? 'UNTIL=20260901' : 'UNTIL=20260902T095959Z'),
+            );
+            expect(stored, isNot(contains('COUNT=3')));
+          }
+          final pulled = await provider.fetchEvents(
+            account,
+            calendar,
+            DateRange(DateTime.utc(2026, 9, 1), DateTime.utc(2026, 9, 6)),
+          );
+          expect(pulled.where((e) => e.title == 'Unrelated'), hasLength(1));
+          final series = pulled.where((e) => e.title != 'Unrelated').toList();
+          expect(series, hasLength(scope == RecurrenceScope.thisOnly ? 2 : 1));
+          expect(series.map((e) => e.startUtc), isNot(contains(original)));
+          expect(
+            series.map((e) => e.startUtc),
+            isNot(contains(moved.startUtc)),
+          );
+        },
+      );
+    }
+  }
+  for (final status in [403, 412, 429, 500]) {
+    test(
+      'cancel occurrence HTTP $status keeps server failure visible',
+      () async {
+        final adapter = _RecordingAdapter(
+          (o) => o.method == 'GET'
+              ? ResponseBody.fromString(
+                  originalIcs,
+                  200,
+                  headers: {
+                    'etag': ['fresh'],
+                  },
+                )
+              : ResponseBody.fromString('rejected', status),
+        );
+        final provider = CalDavProvider(
+          account: account,
+          password: 'x',
+          dio: _dioWith(adapter),
+        );
+        final rid = DateTime.utc(
+          2026,
+          9,
+          2,
+          10,
+        ).millisecondsSinceEpoch.toString();
+        final e = CalendarEvent(
+          id: 'acc-yandex:events-10922764:series-uid:$rid',
+          calendarId: calendar.id,
+          title: 'Series',
+          startUtc: DateTime.utc(2026, 9, 2, 10),
+          endUtc: DateTime.utc(2026, 9, 2, 11),
+          recurrenceRule: 'FREQ=DAILY;COUNT=3',
+          recurrenceId: rid,
+          source: EventSource(
+            accountId: account.id,
+            calendarId: calendar.id,
+            providerEventId: href,
+          ),
+        );
+        await expectLater(
+          provider.deleteEvent(account, e, RecurrenceScope.thisOnly),
+          throwsA(isA<DioException>()),
+        );
+      },
+    );
+  }
+
   test('update occurrence сохраняет RRULE и соседний VEVENT', () async {
     final adapter = _RecordingAdapter(
       (options) => options.method == 'GET'
@@ -162,20 +381,32 @@ END:VCALENDAR''';
   test('новая периодичность уходит в RRULE мастера', () async {
     final adapter = _RecordingAdapter(
       (options) => options.method == 'GET'
-          ? ResponseBody.fromString(originalIcs, 200, headers: {
-              'etag': ['fresh-etag'],
-            })
-          : ResponseBody.fromString('', 204, headers: {
-              'etag': ['updated-etag'],
-            }),
+          ? ResponseBody.fromString(
+              originalIcs,
+              200,
+              headers: {
+                'etag': ['fresh-etag'],
+              },
+            )
+          : ResponseBody.fromString(
+              '',
+              204,
+              headers: {
+                'etag': ['updated-etag'],
+              },
+            ),
     );
     final provider = CalDavProvider(
       account: account,
       password: 'x',
       dio: _dioWith(adapter),
     );
-    final recurrenceId =
-        DateTime.utc(2026, 9, 3, 10).millisecondsSinceEpoch.toString();
+    final recurrenceId = DateTime.utc(
+      2026,
+      9,
+      3,
+      10,
+    ).millisecondsSinceEpoch.toString();
     final occurrence = CalendarEvent(
       id: 'acc-yandex:events-10922764:series-uid:$recurrenceId',
       calendarId: calendar.id,
@@ -192,9 +423,12 @@ END:VCALENDAR''';
       ),
     );
 
-    await provider.updateEvent(account, occurrence,
-        scope: RecurrenceScope.all,
-        originalStartUtc: DateTime.utc(2026, 9, 3, 10));
+    await provider.updateEvent(
+      account,
+      occurrence,
+      scope: RecurrenceScope.all,
+      originalStartUtc: DateTime.utc(2026, 9, 3, 10),
+    );
 
     final put = adapter.requests.last;
     expect(put.body, contains('RRULE:FREQ=WEEKLY;BYDAY=TH'));

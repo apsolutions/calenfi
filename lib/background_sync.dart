@@ -18,6 +18,7 @@ import 'domain/models/account.dart';
 import 'features/notifications/notification_sync.dart';
 import 'features/widget/agenda_widget_service.dart';
 import 'services/diag_log.dart';
+import 'sync/predictive_wake.dart';
 
 /// Сколько фоновая задача ждёт: Android даёт ей 10 минут.
 const _budget = Duration(minutes: 8);
@@ -49,9 +50,10 @@ Future<bool> _askLiveApp() async {
   try {
     ui.send(reply.sendPort);
     // Порт мог остаться от уже закрытого приложения: живое отвечает сразу.
-    final acked = await answers
-        .moveNext()
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
+    final acked = await answers.moveNext().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
     if (!acked || answers.current != 'ack') {
       IsolateNameServer.removePortNameMapping(kUiSyncPortName);
       return false;
@@ -75,11 +77,13 @@ Future<void> _syncHeadless() async {
 
   final container = ProviderContainer();
   try {
-    final synced = await syncDueAccounts(container).timeout(_budget,
-        onTimeout: () {
-      DiagLog.instance.add('bg', 'время вышло, часть аккаунтов не успела');
-      return -1;
-    });
+    final synced = await syncDueAccounts(container).timeout(
+      _budget,
+      onTimeout: () {
+        DiagLog.instance.add('bg', 'время вышло, часть аккаунтов не успела');
+        return -1;
+      },
+    );
     await pushAgendaWidgetOnce(container);
     await rescheduleNotificationsOnce(container);
     DiagLog.instance.add('bg', 'готово, аккаунтов синхронизировано: $synced');
@@ -98,17 +102,30 @@ Future<int> syncDueAccounts(ProviderContainer container) async {
   }
   final engine = container.read(syncEngineProvider);
   final now = DateTime.now().toUtc();
+  final usage = container.read(syncUsageRepositoryProvider);
+  final plan = await usage.plan(now);
+  final latest = await usage.latestSuccessful();
   var started = 0;
-  for (final Account a in await repo.allAccounts()) {
+  final all = await repo.allAccounts();
+  for (final Account a in all) {
     final interval = a.refresh.effectiveInterval;
     if (interval == Duration.zero) continue; // ручной режим
     final last = a.lastSyncUtc;
-    if (last == null || now.difference(last) >= interval) {
+    if (plan.needsRefresh(
+      now: now,
+      lastStarted: latest[a.id]?.started,
+      lastFinished: last,
+      normalInterval: interval,
+    )) {
       started++;
       unawaited(engine.syncAccount(a));
     }
   }
   await engine.whenIdle();
+  final next = all.any((a) => a.refresh.effectiveInterval != Duration.zero)
+      ? (await usage.plan(DateTime.now().toUtc())).nextWake(DateTime.now())
+      : null;
+  await schedulePredictiveWake(next);
   await container.read(notesSyncProvider).sync();
   return started;
 }

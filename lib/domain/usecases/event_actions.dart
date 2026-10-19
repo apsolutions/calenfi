@@ -20,8 +20,7 @@ class EventActions {
 
   Future<void> create(CalendarEvent draft) async {
     final e = draft.id.isEmpty ? draft.withId(_uuid.v4()) : draft;
-    await _events.putLocalDirty(e);
-    await _events.enqueue('create', e.id);
+    await _events.saveAndEnqueue(e, 'create');
     _kickSync(e);
   }
 
@@ -33,8 +32,7 @@ class EventActions {
     RecurrenceScope scope = RecurrenceScope.thisOnly,
     CalendarEvent? original,
   }) async {
-    await _events.putLocalDirty(e);
-    await _events.enqueue('update', e.id, {
+    await _events.saveAndEnqueue(e, 'update', {
       'scope': scope.index,
       if (original != null)
         'origStart': original.startUtc.toUtc().millisecondsSinceEpoch,
@@ -42,16 +40,20 @@ class EventActions {
     _kickSync(e);
   }
 
-  Future<void> delete(CalendarEvent e,
-      {RecurrenceScope scope = RecurrenceScope.all}) async {
-    await _events.putLocalDirty(e.copyWith(deletedRemotely: true));
-    await _events.enqueue('delete', e.id, {'scope': scope.index});
+  Future<void> delete(
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.all,
+  }) async {
+    await _events.saveAndEnqueue(e.copyWith(deletedRemotely: true), 'delete', {
+      'scope': scope.index,
+    });
     _kickSync(e);
   }
 
   Future<void> rsvp(CalendarEvent e, ResponseStatus r) async {
-    await _events.putLocalDirty(e.copyWith(myResponse: r));
-    await _events.enqueue('rsvp', e.id, {'resp': r.index});
+    await _events.saveAndEnqueue(e.copyWith(myResponse: r), 'rsvp', {
+      'resp': r.index,
+    });
     _kickSync(e);
   }
 

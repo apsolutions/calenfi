@@ -150,7 +150,7 @@ class PendingEditsNotifier extends StateNotifier<Map<String, PendingEdit>> {
   }) async {
     _clear(id);
     await _events.enqueue(op, id, _scopePayload(scope, original));
-    final e = await _events.getById(id);
+    final e = await _events.getByReference(id);
     if (e != null) {
       final accId = e.source.accountId.isNotEmpty
           ? e.source.accountId

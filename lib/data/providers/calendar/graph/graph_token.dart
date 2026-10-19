@@ -93,7 +93,8 @@ class GraphToken {
         'scope':
             'https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/OnlineMeetings.ReadWrite offline_access',
       },
-      options: Options(contentType: Headers.formUrlEncodedContentType),
+      options: Options(contentType: Headers.formUrlEncodedContentType,
+          validateStatus: (s) => s != null && s >= 200 && s < 500),
     );
     final data = resp.data as Map<String, dynamic>;
     final at = data['access_token'];

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:collection/collection.dart';
 
 import '../../domain/models/calendar_event.dart';
 import '../../domain/models/merged_event.dart';
@@ -44,8 +45,7 @@ class EventRepository {
                 readOnly: r.calendar.readOnly,
               ),
           };
-          return _dedup.group(domain,
-              combine: combine, ownership: ownership);
+          return _dedup.group(domain, combine: combine, ownership: ownership);
         });
   }
 
@@ -55,6 +55,49 @@ class EventRepository {
     )..where((e) => e.id.equals(id))).getSingleOrNull();
     return row == null ? null : _mapper.toDomain(row);
   }
+
+  /// References held by an editor/timer survive server-assigned identity changes.
+  /// Keep exact getById semantics for callers checking whether the old row exists.
+  Future<String> resolveEventId(String id) async {
+    final row = await _db
+        .customSelect(
+          'SELECT a.event_id FROM event_id_aliases a JOIN events e ON e.id = a.event_id '
+          'WHERE a.old_id = ?',
+          variables: [Variable<String>(id)],
+        )
+        .getSingleOrNull();
+    return row?.read<String>('event_id') ?? id;
+  }
+
+  Future<CalendarEvent?> getByReference(String id) =>
+      _db.transaction(() async => getById(await resolveEventId(id)));
+
+  Future<void> _rememberIdentity(String oldId, String newId) async {
+    await _db.customStatement(
+      'UPDATE event_id_aliases SET event_id = ? WHERE event_id = ?',
+      [newId, oldId],
+    );
+    await _db.customStatement(
+      'INSERT OR REPLACE INTO event_id_aliases(old_id, event_id) VALUES (?, ?)',
+      [oldId, newId],
+    );
+    await _db.customStatement(
+      'DELETE FROM event_id_aliases WHERE NOT EXISTS '
+      '(SELECT 1 FROM events WHERE events.id = event_id_aliases.event_id)',
+    );
+  }
+
+  Future<void> _putLocal(CalendarEvent event, {required bool dirty}) =>
+      _db.transaction(() async {
+        final id = await resolveEventId(event.id);
+        if (id != event.id) {
+          final current = await getById(id);
+          event = event.withLocalId(id).copyWith(source: current!.source);
+        }
+        await _db
+            .into(_db.events)
+            .insertOnConflictUpdate(_mapper.toCompanion(event, dirty: dirty));
+      });
 
   /// Удаляет «призраки-дубли»: локальные UUID-копии (id без ':'), оставшиеся
   /// `dirty` после НЕудавшейся реконсиляции создания, когда на сервере уже есть
@@ -145,6 +188,15 @@ class EventRepository {
     Set<String> keepIds = const {},
   }) async {
     await _db.transaction(() async {
+      // Read protection at commit time, not before the network await. Staged
+      // edits have no outbox entry yet, but must also survive refresh.
+      protectedIds = {
+        ...protectedIds,
+        ...(await pendingOutbox()).map((o) => o.eventId),
+        ...(await (_db.select(
+          _db.events,
+        )..where((e) => e.dirty.equals(true))).get()).map((e) => e.id),
+      };
       if (upserts.isNotEmpty) {
         // Пока для id остаётся задание Outbox, локальное содержимое — источник
         // истины: push мог получить 412/timeout, а remote upsert иначе тихо
@@ -225,9 +277,7 @@ class EventRepository {
   }
 
   /// Локальная (оптимистичная) запись правки пользователя (FR-S4).
-  Future<void> putLocalDirty(CalendarEvent e) => _db
-      .into(_db.events)
-      .insertOnConflictUpdate(_mapper.toCompanion(e, dirty: true));
+  Future<void> putLocalDirty(CalendarEvent e) => _putLocal(e, dirty: true);
 
   /// Атомарно меняет локальный id после create/update в провайдере
   /// и перенацеливает ВСЮ оставшуюся цепочку Outbox. Без этого
@@ -242,6 +292,7 @@ class EventRepository {
           .into(_db.events)
           .insertOnConflictUpdate(_mapper.toCompanion(updated, dirty: true));
       if (oldId == updated.id) return;
+      await _rememberIdentity(oldId, updated.id);
       await (_db.update(_db.outbox)..where((o) => o.eventId.equals(oldId)))
           .write(OutboxCompanion(eventId: Value(updated.id)));
       await (_db.delete(_db.events)..where((e) => e.id.equals(oldId))).go();
@@ -252,9 +303,7 @@ class EventRepository {
   /// строку. Нужно для отмены отложенной правки: возвращаем исходное состояние
   /// (совпадает с облаком, т.к. на сервер ещё не отправляли), чтобы синк его не
   /// пушил и не откатывал обратно.
-  Future<void> putLocalClean(CalendarEvent e) => _db
-      .into(_db.events)
-      .insertOnConflictUpdate(_mapper.toCompanion(e, dirty: false));
+  Future<void> putLocalClean(CalendarEvent e) => _putLocal(e, dirty: false);
 
   /// Пометить события как удалённые в источнике (tombstone, FR-V12).
   Future<void> markDeleted(String calendarId, List<String> providerIds) async {
@@ -300,18 +349,96 @@ class EventRepository {
     String op,
     String eventId, [
     Map<String, dynamic> payload = const {},
-  ]) {
+  ]) => _db.transaction(() async {
+    eventId = await resolveEventId(eventId);
+    final row = await (_db.select(
+      _db.events,
+    )..where((e) => e.id.equals(eventId))).getSingleOrNull();
     return _db
         .into(_db.outbox)
         .insert(
           OutboxCompanion.insert(
             op: op,
             eventId: eventId,
-            payloadJson: Value(jsonEncode(payload)),
+            // Each operation owns its content and recurrence scope. Reading the
+            // latest row for every queued operation can apply an instance edit to
+            // an entire series, or upload a staged (not yet committed) drag.
+            payloadJson: Value(
+              jsonEncode({...payload, if (row != null) 'event': row.toJson()}),
+            ),
             createdAt: DateTime.now().toUtc(),
           ),
         );
+  });
+
+  /// The local edit and durable outgoing operation must become visible together.
+  Future<void> saveAndEnqueue(
+    CalendarEvent event,
+    String op, [
+    Map<String, dynamic> payload = const {},
+  ]) => _db.transaction(() async {
+    await putLocalDirty(event);
+    await enqueue(op, event.id, payload);
+  });
+
+  CalendarEvent eventForOperation(OutboxData item, CalendarEvent current) {
+    final payload = jsonDecode(item.payloadJson) as Map<String, dynamic>;
+    final snapshot = payload['event'];
+    // Old queues remain readable after an upgrade.
+    if (snapshot is! Map<String, dynamic>) return current;
+    return _mapper
+        .toDomain(Event.fromJson(snapshot))
+        .withLocalId(current.id)
+        .copyWith(source: current.source);
   }
+
+  Map<String, Object?> _content(CalendarEvent event) => {
+    for (final entry in _mapper.toCompanion(event).toColumns(false).entries)
+      if (!const {
+        'id',
+        'provider_event_id',
+        'etag',
+        'dirty',
+      }.contains(entry.key))
+        entry.key: (entry.value as Variable).value,
+  };
+
+  /// Acknowledge exactly one uploaded version, retaining later committed or
+  /// staged edits. Identity/ETag and the remaining queue move atomically.
+  Future<void> acknowledgeWrite(
+    OutboxData item,
+    CalendarEvent sent,
+    CalendarEvent saved,
+  ) => _db.transaction(() async {
+    final current = await getById(sent.id);
+    if (current != null) {
+      final remaining =
+          await (_db.select(_db.outbox)..where(
+                (o) =>
+                    o.eventId.equals(sent.id) & o.id.isBiggerThanValue(item.id),
+              ))
+              .get();
+      final newer =
+          remaining.isNotEmpty ||
+          !const DeepCollectionEquality().equals(
+            _content(current),
+            _content(sent),
+          );
+      final local = newer
+          ? current.withLocalId(saved.id).copyWith(source: saved.source)
+          : saved;
+      await _db
+          .into(_db.events)
+          .insertOnConflictUpdate(_mapper.toCompanion(local, dirty: newer));
+      if (sent.id != saved.id) {
+        await _rememberIdentity(sent.id, saved.id);
+        await (_db.update(_db.outbox)..where((o) => o.eventId.equals(sent.id)))
+            .write(OutboxCompanion(eventId: Value(saved.id)));
+        await hardDelete(sent.id);
+      }
+    }
+    await removeOutbox(item.id);
+  });
 
   Future<List<OutboxData>> pendingOutbox() => (_db.select(
     _db.outbox,

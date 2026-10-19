@@ -19,7 +19,7 @@ class GraphProvider implements CalendarProvider {
   GraphProvider({required this.account, required this.token, Dio? dio})
       : _dio = dio ?? Dio() {
     _dio.options
-      ..validateStatus = ((s) => s != null && s < 500)
+      ..validateStatus = ((s) => s != null && s >= 200 && s < 300)
       ..connectTimeout = const Duration(seconds: 20)
       ..sendTimeout = const Duration(seconds: 30)
       ..receiveTimeout = const Duration(seconds: 30);
@@ -35,10 +35,11 @@ class GraphProvider implements CalendarProvider {
   @override
   ProviderCapabilities get caps => ProviderCapabilities.graph;
 
-  Future<Options> _opts({String? contentType, bool utcTz = false}) async {
+  Future<Options> _opts({String? contentType, bool utcTz = false, String? etag}) async {
     final at = await token.accessTokenValid(_dio);
     return Options(headers: {
       'Authorization': 'Bearer $at',
+      'If-Match': ?etag,
       if (utcTz) 'Prefer': 'outlook.timezone="UTC"',
     }, contentType: contentType);
   }
@@ -234,10 +235,10 @@ class GraphProvider implements CalendarProvider {
         seriesId != id) {
       return _updateSeries(e, seriesId: seriesId, originalStartUtc: originalStartUtc);
     }
-    await _dio.patch('$_base/me/events/$id',
+    final response = await _dio.patch('$_base/me/events/$id',
         data: _toGraph(e),
-        options: await _opts(contentType: Headers.jsonContentType));
-    return e;
+        options: await _opts(contentType: Headers.jsonContentType, etag: e.source.etag));
+    return e.copyWith(source: e.source.copyWith(etag: response.data['@odata.etag'] as String?));
   }
 
   /// Переносит правку вхождения на мастер серии: время — со сдвигом, остальные
@@ -292,7 +293,7 @@ class GraphProvider implements CalendarProvider {
     }
     await _dio.patch('$_base/me/events/$seriesId',
         data: payload,
-        options: await _opts(contentType: Headers.jsonContentType));
+        options: await _opts(contentType: Headers.jsonContentType, etag: master['@odata.etag'] as String?));
     return e;
   }
 
@@ -347,7 +348,7 @@ class GraphProvider implements CalendarProvider {
   Future<void> respondToInvite(
       Account acc, CalendarEvent e, ResponseStatus r) async {
     final id = e.source.providerEventId;
-    if (id == null) return;
+    if (id == null || id.isEmpty) throw StateError('Graph RSVP: нет id события');
     final action = switch (r) {
       ResponseStatus.accepted => 'accept',
       ResponseStatus.declined => 'decline',
@@ -437,7 +438,7 @@ class GraphProvider implements CalendarProvider {
       // хранит ссылку на мастер для удаления «всей серии».
       recurrenceId: e['seriesMasterId'] as String?,
       source: EventSource(
-          accountId: acc.id, calendarId: cal.id, providerEventId: e['id'] as String?),
+          accountId: acc.id, calendarId: cal.id, providerEventId: e['id'] as String?, etag: e['@odata.etag'] as String?),
     );
   }
 
@@ -460,11 +461,10 @@ class GraphProvider implements CalendarProvider {
       // конвертируем в его patternedRecurrence (только у мастера).
       if (e.recurrenceRule != null && e.recurrenceId == null)
         'recurrence': ?rruleToGraphRecurrence(e.recurrenceRule!, e.startUtc),
-      if (e.location != null) 'location': {'displayName': e.location},
-      if (body != null) 'body': {'contentType': 'text', 'content': body},
+      'location': {'displayName': e.location ?? ''},
+      'body': {'contentType': 'text', 'content': body ?? ''},
       // Организатор в Graph — отдельное поле, в участники его не отправляем.
-      if (e.attendees.any((a) => !a.isOrganizer))
-        'attendees': [
+      'attendees': [
           for (final a in e.attendees.where((a) => !a.isOrganizer))
             {
               'emailAddress': {'address': a.email},

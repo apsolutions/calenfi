@@ -13,6 +13,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Встречи с ответами «Возможно» и «Отклонено» отображаются приглушёнными и зачёркнутыми.
 - Встречи с ответами «Возможно» и «Отклонено» видны только при включённом отображении удалённых.
 - Красная метка текущего времени скрывается при переходе на дни без сегодняшней даты.
+### Fixed
+- RSVP updates in Google Calendar change only the current user's response,
+  preserving other attendees and their newer responses. Google and Graph no
+  longer acknowledge a response when the server event ID is missing.
+- Exchange organizer reschedules and cancellations notify attendees; deleting
+  an invitee's local copy does not cancel the meeting for everyone. A server
+  refusal to delete is reported instead of silently acknowledged.
+- Cancelling a moved CalDAV occurrence excludes its original recurrence slot
+  and removes the moved exception. Cancelling this and following occurrences
+  removes later exceptions too. All-day exclusions retain their DATE type.
+
+### Tests
+- Acceptance, tentative (maybe), decline, rescheduling and cancellation across
+  provider transports and the durable queue, including overlapping refreshes,
+  consecutive responses, errors, retries and recurring/all-day cancellation
+  followed by a fresh pull. Unsupported CalDAV RSVP is checked explicitly.
+
+## [0.3.25] — 2026-10-19
+
+### Fixed
+- Calendar edits survive overlapping refreshes, consecutive uploads and server
+  ID changes. Each queued operation retains its own content and recurrence
+  scope; acknowledging an older upload preserves newer local edits.
+- Google Calendar and Microsoft Graph reject failed HTTP writes instead of
+  silently treating them as saved. Updates use ETags and can clear locations,
+  descriptions and attendees. The first failed edit is visible immediately.
+- Synchronization timeouts retain ownership until the underlying requests
+  finish. Android foreground and background engines serialize work for each
+  account, preventing overlapping uploads.
+
+### Added
+- Device-local SQLite opening history and predictive sync windows based on
+  weekday/time, with measured sync duration and a two-minute freshness target.
+  Actual freshness is tracked separately from the model's 95% coverage target.
+- Usage patterns fade only as newer days of use are observed: seven observed
+  days halve an old day's weight; inactivity does not erase habits. Daily
+  weight is normalized and the last 56 observed days are retained.
+- Regression tests for Google, Graph, CalDAV and EWS writes, concurrent edits,
+  background ownership and predictive scheduling.
 
 ## [0.3.24] — 2026-10-06
 

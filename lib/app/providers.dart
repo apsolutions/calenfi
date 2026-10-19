@@ -1,3 +1,4 @@
+import '../sync/platform_account_lock.dart';
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui';
@@ -18,6 +19,8 @@ import '../domain/models/account.dart';
 import '../domain/models/calendar.dart';
 import '../services/diag_log.dart';
 import '../sync/sync_engine.dart';
+import '../sync/predictive_wake.dart';
+import '../data/repositories/sync_usage_repository.dart';
 
 final eventRepositoryProvider = Provider<EventRepository>((ref) {
   return EventRepository(ref.watch(databaseProvider));
@@ -52,7 +55,8 @@ const wakeGrace = Duration(minutes: 2);
 bool networkExpectedAt(DateTime nowUtc) {
   final woke = lastWakeUtc;
   if (woke != null && nowUtc.difference(woke) < wakeGrace) return false;
-  final mobile = defaultTargetPlatform == TargetPlatform.android ||
+  final mobile =
+      defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
   if (!mobile || backgroundJobActive) return true;
   final state = WidgetsBinding.instance.lifecycleState;
@@ -67,13 +71,21 @@ bool _networkExpected() => networkExpectedAt(DateTime.now().toUtc());
 /// во сне таймеры стоят, и после пробуждения тик приходит с опозданием.
 const _sleepGap = Duration(minutes: 3);
 
+final syncUsageRepositoryProvider = Provider<SyncUsageRepository>((ref) {
+  return SyncUsageRepository(ref.watch(databaseProvider));
+});
+
 final syncEngineProvider = Provider<SyncEngine>((ref) {
+  final ownership = PlatformAccountLock();
   final engine = SyncEngine(
     registry: ref.watch(providerRegistryProvider),
     accounts: ref.watch(accountRepositoryProvider),
     events: ref.watch(eventRepositoryProvider),
     contacts: ref.watch(contactRepositoryProvider),
     networkExpected: _networkExpected,
+    onPassFinished: ref.watch(syncUsageRepositoryProvider).recordRun,
+    acquireAccount: ownership.acquire,
+    releaseAccount: ownership.release,
   );
   ref.onDispose(engine.dispose);
   return engine;
@@ -155,7 +167,9 @@ final syncTriggerProvider = Provider<Future<void> Function()>((ref) {
 /// их интервал (`RefreshPolicy.effectiveInterval`; `manual` → не автосинкается).
 /// Watch'ить в корне App. Без неё календарь обновлялся только при старте/кнопке.
 final periodicSyncProvider = Provider<void>((ref) {
-  Future<void> syncDue() async {
+  var disposed = false;
+  Timer? predictionTimer;
+  Future<void> syncDue({bool opening = false}) async {
     // Движок и репозиторий читаем на каждом тике, а не один раз при создании.
     // Переподключение аккаунта пересоздаёт реестр провайдеров и движок; если
     // держать здесь прежний движок, фоновый синк продолжит ходить со старыми
@@ -163,16 +177,44 @@ final periodicSyncProvider = Provider<void>((ref) {
     // после успешного входа снова пометит аккаунт «нужно переподключение» —
     // и так до перезапуска приложения.
     final engine = ref.read(syncEngineProvider);
+    final repo = ref.read(syncUsageRepositoryProvider);
     final all = await ref.read(accountRepositoryProvider).allAccounts();
-    final now = DateTime.now().toUtc();
+    if (disposed) return;
+    final now = DateTime.now();
+    if (opening) await repo.recordOpening(now, all);
+    final plan = await repo.plan(now.toUtc());
+    final latest = await repo.latestSuccessful();
+    if (disposed) return;
+    if (opening) {
+      DiagLog.instance.add(
+        'sync-plan',
+        'открытий: ${plan.sampleCount}; покрытие модели: ${(plan.modelCoverage * 100).toStringAsFixed(1)}%; '
+            'фактически свежих ≤2 мин: ${plan.observedFreshFraction == null ? "нет данных" : "${(plan.observedFreshFraction! * 100).toStringAsFixed(1)}%"}; '
+            'время синка p95: ${plan.lead.inSeconds} с',
+      );
+    }
+    final foreground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     for (final a in all) {
-      final interval = a.refresh.effectiveInterval;
-      if (interval == Duration.zero) continue; // ручной режим
-      final last = a.lastSyncUtc;
-      if (last == null || now.difference(last) >= interval) {
-        engine.syncAccount(a); // fire-and-forget, ошибки изолированы
+      if (plan.needsRefresh(
+        now: now.toUtc(),
+        lastStarted: latest[a.id]?.started,
+        lastFinished: a.lastSyncUtc,
+        normalInterval: a.refresh.effectiveInterval,
+        opening: opening,
+        foreground: foreground,
+      )) {
+        unawaited(engine.syncAccount(a));
       }
     }
+    final next = all.any((a) => a.refresh.effectiveInterval != Duration.zero)
+        ? plan.nextWake(now)
+        : null;
+    predictionTimer?.cancel();
+    if (next != null) {
+      predictionTimer = Timer(next.difference(now), () => syncDue());
+    }
+    await schedulePredictiveWake(next);
   }
 
   // Тик после сна запускал синк, пока сеть ещё не поднялась, и аккаунты
@@ -182,9 +224,11 @@ final periodicSyncProvider = Provider<void>((ref) {
     final now = DateTime.now().toUtc();
     if (now.difference(lastTick) > _sleepGap) {
       lastWakeUtc = now;
-      DiagLog.instance.add('app',
-          'пробуждение после сна (${now.difference(lastTick).inMinutes} мин): '
-              'сетевые сбои ${wakeGrace.inMinutes} мин не показываю');
+      DiagLog.instance.add(
+        'app',
+        'пробуждение после сна (${now.difference(lastTick).inMinutes} мин): '
+            'сетевые сбои ${wakeGrace.inMinutes} мин не показываю',
+      );
     }
     lastTick = now;
     syncDue();
@@ -195,12 +239,17 @@ final periodicSyncProvider = Provider<void>((ref) {
   // Короткая пауза — система снимает сетевой запрет чуть позже onResume.
   Timer? resumeDelay;
   final lifecycle = AppLifecycleListener(
-    onStateChange: (state) => DiagLog.instance.add('app', 'состояние: ${state.name}'),
+    onStateChange: (state) =>
+        DiagLog.instance.add('app', 'состояние: ${state.name}'),
     onResume: () {
       resumeDelay?.cancel();
-      resumeDelay = Timer(const Duration(seconds: 2), syncDue);
+      resumeDelay = Timer(
+        const Duration(seconds: 2),
+        () => syncDue(opening: true),
+      );
     },
   );
+  final initialOpening = Timer(Duration.zero, () => syncDue(opening: true));
   // Фоновая задача Android будит процесс раз в 15 минут и просит живое
   // приложение синхронизироваться: у него уже открыта база и собран движок.
   final jobs = ReceivePort();
@@ -225,7 +274,10 @@ final periodicSyncProvider = Provider<void>((ref) {
   });
 
   ref.onDispose(() {
+    disposed = true;
     timer.cancel();
+    initialOpening.cancel();
+    predictionTimer?.cancel();
     resumeDelay?.cancel();
     lifecycle.dispose();
     IsolateNameServer.removePortNameMapping(kUiSyncPortName);

@@ -20,8 +20,10 @@ class EwsProvider implements CalendarProvider {
     required this.password,
     this.user,
     this.ewsUrlOverride,
+    this.http,
   });
 
+  final NtlmHttp? http;
   final Account account;
   final String password;
   final String? user; // если домен-логин отличается от email
@@ -298,7 +300,7 @@ ${_attendeesXml(attendees)}
         set('item:Body', 't', '<t:Body BodyType="Text">${_esc(e.description!)}</t:Body>'),
     ].join();
     final body = '''${_envelopeOpen('UpdateItem')}
-<m:UpdateItem ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="SendToNone">
+<m:UpdateItem ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="${e.myResponse == ResponseStatus.organizer ? 'SendToAllAndSaveCopy' : 'SendToNone'}">
 <m:ItemChanges><t:ItemChange>
 <t:ItemId Id="${_attr(id)}"${e.source.etag == null ? '' : ' ChangeKey="${_attr(e.source.etag!)}"'}/>
 <t:Updates>$updates</t:Updates>
@@ -318,13 +320,13 @@ ${_attendeesXml(attendees)}
     // сервере нечего, считаем удалённым.
     if (id == null) return;
     final body = '''${_envelopeOpen('DeleteItem')}
-<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToNone">
+<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="${e.myResponse == ResponseStatus.organizer ? 'SendToAllAndSaveCopy' : 'SendToNone'}">
 <m:ItemIds><t:ItemId Id="${_attr(id)}"${e.source.etag == null ? '' : ' ChangeKey="${_attr(e.source.etag!)}"'}/></m:ItemIds>
 </m:DeleteItem>${_envelopeClose()}''';
-    // ErrorItemNotFound / ErrorCannotDeleteObject = событие уже удалено на
-    // сервере → цель достигнута, НЕ ошибка (иначе задание застревает навсегда).
+    // Only ItemNotFound proves it is already absent. CannotDeleteObject is
+    // a real refusal and must keep the deletion pending in the outbox.
     _checked(await _soap(_action('DeleteItem'), body),
-        okCodes: const {'ErrorItemNotFound', 'ErrorCannotDeleteObject'});
+        okCodes: const {'ErrorItemNotFound'});
   }
 
   @override
@@ -507,7 +509,7 @@ ${_attendeesXml(attendees)}
       if (i > 0) hmap[h.substring(0, i).trim()] = h.substring(i + 1).trim();
     }
     final (u, dom) = _ntlmCreds();
-    final resp = await NtlmHttp(user: u, password: password, domain: dom)
+    final resp = await (http ?? NtlmHttp(user: u, password: password, domain: dom))
         .post(Uri.parse(url), body: body, headers: hmap);
     if (resp.statusCode >= 400) throw 'EWS HTTP ${resp.statusCode}';
     return resp.body;
