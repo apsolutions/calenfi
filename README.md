@@ -24,6 +24,8 @@ on-device, editable offline.
 - **Conferences** — attach real Teams / Meet / Zoom / Telemost meetings,
   independent of which calendar hosts the event.
 - **Per-calendar overrides** — visibility, colour and default reminders.
+- **Invitation replies** — accept, decline or tentatively accept invitations,
+  including CalDAV servers with automatic scheduling (such as Yandex).
 - **Reminders & widgets** — local notifications, a home-screen agenda widget on
   Android, and two WidgetKit widgets on macOS: today's agenda and a translucent
   mini month calendar you can page through right in the widget.

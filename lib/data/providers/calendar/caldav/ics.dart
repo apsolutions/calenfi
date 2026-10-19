@@ -90,7 +90,7 @@ List<VEvent> parseIcs(String ics) {
   final lines = _unfold(ics);
   final events = <VEvent>[];
 
-  Map<String, _Prop>? cur;
+  Map<String, IcsProperty>? cur;
   final attendees = <IcsAttendee>[];
   final attachments = <IcsAttachment>[];
   final exdates = <DateTime>[];
@@ -112,7 +112,7 @@ List<VEvent> parseIcs(String ics) {
       }
       cur = null;
     } else if (cur != null) {
-      final prop = _Prop.parse(line);
+      final prop = IcsProperty.parse(line);
       if (prop == null) continue;
       if (prop.name == 'ATTENDEE') {
         attendees.add(
@@ -126,25 +126,30 @@ List<VEvent> parseIcs(String ics) {
       } else if (prop.name == 'ATTACH') {
         // Встроенный файл (VALUE=BINARY / ENCODING=BASE64) пропускаем: в
         // карточке показывать нечего, а база от него распухает.
-        final inline = prop.params['VALUE'] == 'BINARY' ||
+        final inline =
+            prop.params['VALUE'] == 'BINARY' ||
             prop.params['ENCODING'] == 'BASE64';
         final uri = prop.value.trim();
         if (!inline && uri.isNotEmpty) {
-          attachments.add(IcsAttachment(
-            uri,
-            // FILENAME — расширение Apple/Google, X-FILENAME — Яндекса и
-            // Exchange; берём то, что пришло.
-            fileName: _unescape(prop.params['FILENAME'] ??
-                prop.params['X-FILENAME'] ??
-                prop.params['X-APPLE-FILENAME']),
-            mimeType: prop.params['FMTTYPE'],
-            sizeBytes: int.tryParse(prop.params['SIZE'] ?? ''),
-          ));
+          attachments.add(
+            IcsAttachment(
+              uri,
+              // FILENAME — расширение Apple/Google, X-FILENAME — Яндекса и
+              // Exchange; берём то, что пришло.
+              fileName: _unescape(
+                prop.params['FILENAME'] ??
+                    prop.params['X-FILENAME'] ??
+                    prop.params['X-APPLE-FILENAME'],
+              ),
+              mimeType: prop.params['FMTTYPE'],
+              sizeBytes: int.tryParse(prop.params['SIZE'] ?? ''),
+            ),
+          );
         }
       } else if (prop.name == 'EXDATE') {
         for (final value in prop.value.split(',')) {
           try {
-            exdates.add(_parseDate(_Prop(prop.name, value, prop.params)));
+            exdates.add(_parseDate(IcsProperty(prop.name, value, prop.params)));
           } catch (_) {
             // Одна битая дата не должна скрывать весь VEVENT.
           }
@@ -158,7 +163,7 @@ List<VEvent> parseIcs(String ics) {
 }
 
 VEvent? _build(
-  Map<String, _Prop> p,
+  Map<String, IcsProperty> p,
   List<IcsAttendee> attendees,
   List<DateTime> exdates,
   List<IcsAttachment> attachments,
@@ -198,7 +203,7 @@ VEvent? _build(
   );
 }
 
-DateTime? _tryParseDate(_Prop? p) {
+DateTime? _tryParseDate(IcsProperty? p) {
   if (p == null) return null;
   try {
     return _parseDate(p);
@@ -207,7 +212,7 @@ DateTime? _tryParseDate(_Prop? p) {
   }
 }
 
-DateTime _parseDate(_Prop p) {
+DateTime _parseDate(IcsProperty p) {
   final v = p.value.trim();
   // all-day: YYYYMMDD
   if (p.params['VALUE'] == 'DATE' || (v.length == 8 && !v.contains('T'))) {
@@ -268,26 +273,55 @@ List<String> _unfold(String ics) {
   return out;
 }
 
-class _Prop {
-  _Prop(this.name, this.value, this.params);
+class IcsProperty {
+  IcsProperty(this.name, this.value, this.params, [this._rawParams = const []]);
   final String name;
   final String value;
   final Map<String, String> params;
+  final List<String> _rawParams;
 
-  static _Prop? parse(String line) {
-    final colon = line.indexOf(':');
+  String withParameters(Map<String, String> replacements) {
+    final header = [
+      name,
+      ..._rawParams.where(
+        (p) => !replacements.containsKey(p.split('=').first.toUpperCase()),
+      ),
+      ...replacements.entries.map((e) => '${e.key}=${e.value}'),
+    ].join(';');
+    return '$header:$value';
+  }
+
+  static IcsProperty? parse(String line) {
+    var quoted = false;
+    var start = 0;
+    var colon = -1;
+    final parts = <String>[];
+    for (var i = 0; i < line.length; i++) {
+      if (line[i] == '"') quoted = !quoted;
+      if (quoted) continue;
+      if (line[i] == ';' || line[i] == ':') {
+        parts.add(line.substring(start, i));
+        start = i + 1;
+        if (line[i] == ':') {
+          colon = i;
+          break;
+        }
+      }
+    }
     if (colon < 0) return null;
-    final left = line.substring(0, colon);
     final value = line.substring(colon + 1);
-    final parts = left.split(';');
     final name = parts.first.toUpperCase();
     final params = <String, String>{};
     for (final p in parts.skip(1)) {
       final eq = p.indexOf('=');
       if (eq > 0) {
-        params[p.substring(0, eq).toUpperCase()] = p.substring(eq + 1);
+        final raw = p.substring(eq + 1);
+        params[p.substring(0, eq).toUpperCase()] =
+            raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2
+            ? raw.substring(1, raw.length - 1)
+            : raw;
       }
     }
-    return _Prop(name, value, params);
+    return IcsProperty(name, value, params, parts.skip(1).toList());
   }
 }

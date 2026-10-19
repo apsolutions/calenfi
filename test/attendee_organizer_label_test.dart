@@ -2,7 +2,6 @@
 // будто организатор я: строка участника-организатора подписывалась фразой про
 // мой собственный ответ.
 
-import 'package:calenfi/app/providers.dart';
 import 'package:calenfi/data/local/db/database.dart';
 import 'package:calenfi/data/local/db/database_provider.dart';
 import 'package:calenfi/domain/models/attendee.dart';
