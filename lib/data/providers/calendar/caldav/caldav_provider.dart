@@ -103,7 +103,7 @@ class _RawVEvent {
 
 /// Реальный адаптер CalDAV (Yandex и совместимые). App-password + Basic auth.
 /// Параметры host/port/principal — из [Account.config] (FR-A3).
-class CalDavProvider implements CalendarProvider {
+class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
   CalDavProvider({required this.account, required this.password, Dio? dio})
     : _dio = dio ?? Dio() {
     _dio.options
@@ -872,10 +872,14 @@ class CalDavProvider implements CalendarProvider {
     final occ = recurrenceMillis == null
         ? e.startUtc.toUtc()
         : DateTime.fromMillisecondsSinceEpoch(recurrenceMillis, isUtc: true);
-    final family = _rawVEvents(ics).where(
-      (component) => _canonicalUid(acc, cal, component.event.uid) == uid,
-    ).toList();
-    if (!family.any((c) => c.event.recurrenceIdUtc == null && c.event.rrule != null)) {
+    final family = _rawVEvents(ics)
+        .where(
+          (component) => _canonicalUid(acc, cal, component.event.uid) == uid,
+        )
+        .toList();
+    if (!family.any(
+      (c) => c.event.recurrenceIdUtc == null && c.event.rrule != null,
+    )) {
       throw const FormatException('CalDAV delete: мастер серии не найден');
     }
     // Remove moved exceptions too, otherwise pull overlays them onto EXDATE
@@ -891,9 +895,17 @@ class CalDavProvider implements CalendarProvider {
       } else if (component.event.rrule != null) {
         replacement = scope == RecurrenceScope.thisOnly
             ? _addExdate(replacement, occ, allDay: component.event.allDay)
-            : _setRruleUntil(replacement, occ.subtract(const Duration(seconds: 1)), allDay: component.event.allDay);
+            : _setRruleUntil(
+                replacement,
+                occ.subtract(const Duration(seconds: 1)),
+                allDay: component.event.allDay,
+              );
       }
-      ics = ics.replaceRange(component.match.start, component.match.end, replacement);
+      ics = ics.replaceRange(
+        component.match.start,
+        component.match.end,
+        replacement,
+      );
     }
     final etag = resp.headers.value('etag')?.trim() ?? e.source.etag?.trim();
     await _dio.requestUri(
@@ -1044,14 +1056,22 @@ class CalDavProvider implements CalendarProvider {
   static String _addExdate(String ics, DateTime occ, {bool allDay = false}) {
     final m = RegExp(r'^RRULE:[^\r\n]*', multiLine: true).firstMatch(ics);
     if (m == null) return ics;
-    final exclusion = allDay ? 'EXDATE;VALUE=DATE:${_icsStamp(occ).substring(0, 8)}' : 'EXDATE:${_icsStamp(occ)}';
+    final exclusion = allDay
+        ? 'EXDATE;VALUE=DATE:${_icsStamp(occ).substring(0, 8)}'
+        : 'EXDATE:${_icsStamp(occ)}';
     return '${ics.substring(0, m.end)}\r\n$exclusion${ics.substring(m.end)}';
   }
 
   /// Ставит UNTIL в RRULE (убирая конфликтующие UNTIL/COUNT).
-  static String _setRruleUntil(String ics, DateTime until, {bool allDay = false}) {
+  static String _setRruleUntil(
+    String ics,
+    DateTime until, {
+    bool allDay = false,
+  }) {
     final u = allDay ? _icsStamp(until).substring(0, 8) : _icsStamp(until);
-    return ics.replaceAllMapped(RegExp(r'^RRULE:([^\r\n]*)', multiLine: true), (m) {
+    return ics.replaceAllMapped(RegExp(r'^RRULE:([^\r\n]*)', multiLine: true), (
+      m,
+    ) {
       final parts =
           m
               .group(1)!
@@ -1068,12 +1088,7 @@ class CalDavProvider implements CalendarProvider {
     });
   }
 
-  @override
-  Future<void> respondToInvite(
-    Account acc,
-    CalendarEvent e,
-    ResponseStatus r,
-  ) async {
+  Future<Uri> _inviteUri(Account acc, CalendarEvent e, ResponseStatus r) async {
     if (!{
       ResponseStatus.accepted,
       ResponseStatus.declined,
@@ -1090,9 +1105,9 @@ class CalDavProvider implements CalendarProvider {
         e.source.providerEventId == null) {
       throw ArgumentError('CalDAV RSVP: событие не принадлежит аккаунту');
     }
-    final cal = _calOf(e);
-    final uid = _uidOf(acc, cal, e);
-    final uri = Uri.parse(_url(_resourceHref(cal, e, uid)));
+    final uri = Uri.parse(
+      _url(_resourceHref(_calOf(e), e, _uidOf(acc, _calOf(e), e))),
+    );
     if (uri.origin != Uri.parse(_base).origin || uri.userInfo.isNotEmpty) {
       throw ArgumentError('CalDAV RSVP: ресурс находится на другом сервере');
     }
@@ -1108,19 +1123,75 @@ class CalDavProvider implements CalendarProvider {
         'CalDAV-сервер не поддерживает автоматическую отправку ответов',
       );
     }
-    final existing = await _dio.requestUri(
-      uri,
-      options: _requestOptions('GET')..followRedirects = false,
+    return uri;
+  }
+
+  Future<Response<dynamic>> _readInvite(Uri uri) => _dio.requestUri(
+    uri,
+    options: _requestOptions('GET')..followRedirects = false,
+  );
+
+  @override
+  Future<void> validateInviteResponse(
+    Account acc,
+    CalendarEvent e,
+    ResponseStatus r,
+  ) async {
+    final uri = await _inviteUri(acc, e, r);
+    final existing = await _readInvite(uri);
+    _mergeInviteReply(
+      acc,
+      _calOf(e),
+      e,
+      _uidOf(acc, _calOf(e), e),
+      existing.data.toString(),
+      _partstatIcs(r),
     );
-    final original = existing.data.toString();
-    final body = _mergeInviteReply(acc, cal, e, uid, original, _partstatIcs(r));
-    if (body == original) return;
-    final scheduleTag = existing.headers.value('schedule-tag')?.trim();
-    final etag = existing.headers.value('etag')?.trim();
-    if ((scheduleTag == null || scheduleTag.isEmpty) &&
-        (etag == null || etag.isEmpty)) {
+    _requireInviteVersion(existing);
+  }
+
+  static void _requireInviteVersion(Response<dynamic> response) {
+    if ((response.headers.value('schedule-tag')?.trim().isEmpty ?? true) &&
+        (response.headers.value('etag')?.trim().isEmpty ?? true)) {
       throw UnsupportedError('CalDAV RSVP: сервер не вернул версию события');
     }
+  }
+
+  @override
+  Future<void> respondToInvite(
+    Account acc,
+    CalendarEvent e,
+    ResponseStatus r,
+  ) async {
+    final uri = await _inviteUri(acc, e, r);
+    final cal = _calOf(e);
+    final uid = _uidOf(acc, cal, e);
+    final existing = await _readInvite(uri);
+    final original = existing.data.toString();
+    var body = _mergeInviteReply(acc, cal, e, uid, original, _partstatIcs(r));
+    if (body == original) {
+      final codes = _replyDeliveryCodes(acc, cal, e, uid, original);
+      // Only a known temporary delivery failure warrants another REPLY. Pending,
+      // unknown and permanent failures must never generate duplicate messages.
+      if (codes.isNotEmpty &&
+          codes.contains('5.1') &&
+          codes.every((c) => c == '5.1' || _deliverySucceeded(c))) {
+        body = _mergeInviteReply(
+          acc,
+          cal,
+          e,
+          uid,
+          original,
+          _partstatIcs(r),
+          forceReply: true,
+        );
+      } else {
+        _requireReplyDelivered(codes);
+        return;
+      }
+    }
+    _requireInviteVersion(existing);
+    final scheduleTag = existing.headers.value('schedule-tag')?.trim();
     await _dio.requestUri(
       uri,
       data: body,
@@ -1131,9 +1202,73 @@ class CalDavProvider implements CalendarProvider {
           if (scheduleTag != null && scheduleTag.isNotEmpty)
             'If-Schedule-Tag-Match': scheduleTag
           else
-            'If-Match': etag,
+            'If-Match': existing.headers.value('etag')!.trim(),
         },
       )..followRedirects = false,
+    );
+    // RFC 6638: successful PUT stores the resource; ORGANIZER SCHEDULE-STATUS
+    // separately records delivery. A failed read leaves the durable queue intact.
+    final saved = (await _readInvite(uri)).data.toString();
+    if (_mergeInviteReply(acc, cal, e, uid, saved, _partstatIcs(r)) != saved) {
+      throw StateError('CalDAV: сервер не подтвердил сохранение ответа');
+    }
+    _requireReplyDelivered(_replyDeliveryCodes(acc, cal, e, uid, saved));
+  }
+
+  List<String> _replyDeliveryCodes(
+    Account acc,
+    Calendar cal,
+    CalendarEvent event,
+    String uid,
+    String ics,
+  ) {
+    final family = _rawVEvents(
+      ics,
+    ).where((c) => _canonicalUid(acc, cal, c.event.uid) == uid).toList();
+    final millis = event.recurrenceId == null
+        ? null
+        : int.tryParse(event.recurrenceId!);
+    final target =
+        family.firstWhereOrNull(
+          (c) => c.event.recurrenceIdUtc?.millisecondsSinceEpoch == millis,
+        ) ??
+        family.firstWhereOrNull((c) => c.event.recurrenceIdUtc == null);
+    if (target == null) return const [];
+    var depth = 0;
+    final raw = target.match.group(0)!;
+    for (final block in _logicalPropertyBlocks(
+      raw,
+      raw.contains('\r\n') ? '\r\n' : '\n',
+    )) {
+      final property = IcsProperty.parse(
+        block.replaceAll(RegExp(r'\r?\n[ \t]'), ''),
+      );
+      if (property == null) continue;
+      if (property.name == 'BEGIN') depth++;
+      if (property.name == 'END') depth--;
+      if (depth == 1 && property.name == 'ORGANIZER') {
+        return property.params['SCHEDULE-STATUS']
+                ?.split(',')
+                .map((c) => c.trim())
+                .toList() ??
+            const [];
+      }
+    }
+    return const [];
+  }
+
+  static bool _deliverySucceeded(String code) =>
+      code == '1.1' || code == '1.2' || code == '2.0';
+
+  static void _requireReplyDelivered(List<String> codes) {
+    if (codes.isNotEmpty && codes.every(_deliverySucceeded)) return;
+    final reason = codes.isEmpty
+        ? 'сервер не сообщил статус доставки'
+        : codes.contains('1.0')
+        ? 'доставка ещё ожидается'
+        : 'ошибка доставки: ${codes.join(', ')}';
+    throw StateError(
+      'Ответ сохранён, но отправка организатору не подтверждена: $reason',
     );
   }
 
@@ -1143,8 +1278,9 @@ class CalDavProvider implements CalendarProvider {
     CalendarEvent event,
     String uid,
     String ics,
-    String response,
-  ) {
+    String response, {
+    bool forceReply = false,
+  }) {
     final family = _rawVEvents(
       ics,
     ).where((c) => _canonicalUid(acc, cal, c.event.uid) == uid).toList();
@@ -1189,6 +1325,7 @@ class CalDavProvider implements CalendarProvider {
           ? DateTime.fromMillisecondsSinceEpoch(millis!, isUtc: true)
           : null,
       duration: source.event.endUtc.difference(source.event.startUtc),
+      forceReply: forceReply,
     );
     if (replacement == raw) return ics;
     if (target == null) return _insertVEvent(ics, replacement);
@@ -1201,6 +1338,7 @@ class CalDavProvider implements CalendarProvider {
     String response, {
     DateTime? occurrence,
     required Duration duration,
+    bool forceReply = false,
   }) {
     final eol = raw.contains('\r\n') ? '\r\n' : '\n';
     final blocks = _logicalPropertyBlocks(raw, eol);
@@ -1239,18 +1377,21 @@ class CalDavProvider implements CalendarProvider {
           );
         }
         foundOrganizer = true;
+        if (forceReply) {
+          changed = true;
+          result.add(property.withParameters({'SCHEDULE-FORCE-SEND': 'REPLY'}));
+          continue;
+        }
       }
       if (property.name == 'ATTENDEE') {
         final attendee = Uri.tryParse(property.value);
         if (attendee?.scheme.toLowerCase() == 'mailto' &&
             attendee!.path.toLowerCase() == email.toLowerCase()) {
           foundAttendee = true;
-          changed |=
-              property.params['PARTSTAT']?.toUpperCase() != response ||
-              property.params['RSVP']?.toUpperCase() == 'TRUE';
-          result.add(
-            property.withParameters({'PARTSTAT': response, 'RSVP': 'FALSE'}),
-          );
+          // RSVP is the organizer's request for a reply, not a delivery flag.
+          // Keep it intact, including when the server retains RSVP=TRUE.
+          changed |= property.params['PARTSTAT']?.toUpperCase() != response;
+          result.add(property.withParameters({'PARTSTAT': response}));
           continue;
         }
       }

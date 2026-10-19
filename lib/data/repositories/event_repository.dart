@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:collection/collection.dart';
 
 import '../../domain/models/calendar_event.dart';
+import '../../domain/models/enums.dart';
 import '../../domain/models/merged_event.dart';
 import '../../domain/providers/calendar_provider.dart';
 import '../../services/dedup_engine.dart';
@@ -381,6 +382,23 @@ class EventRepository {
     await enqueue(op, event.id, payload);
   });
 
+  /// Re-read after preflight and save atomically: an edit or deletion may have
+  /// happened while the server capabilities were being checked.
+  Future<int> queueInviteResponse(
+    CalendarEvent reference,
+    ResponseStatus response,
+  ) => _db.transaction(() async {
+    final current = await getByReference(reference.id);
+    if (current == null || current.isCancelled) {
+      throw StateError('Приглашение удалено или отменено');
+    }
+    await putLocalDirty(current.copyWith(myResponse: response));
+    return enqueue('rsvp', current.id, {
+      'resp': response.index,
+      'previousResponse': current.myResponse.index,
+    });
+  });
+
   CalendarEvent eventForOperation(OutboxData item, CalendarEvent current) {
     final payload = jsonDecode(item.payloadJson) as Map<String, dynamic>;
     final snapshot = payload['event'];
@@ -439,6 +457,24 @@ class EventRepository {
     }
     await removeOutbox(item.id);
   });
+
+  /// A reply rejected before it can be sent is not a retryable write. Restore
+  /// its optimistic response when still current, without overwriting later edits.
+  /// The following pull restores server fields for legacy jobs without a baseline.
+  Future<void> rejectUnsupportedReply(
+    OutboxData item,
+    CalendarEvent sent,
+  ) async {
+    final payload = jsonDecode(item.payloadJson) as Map<String, dynamic>;
+    final previous = payload['previousResponse'];
+    final response =
+        previous is int &&
+            previous >= 0 &&
+            previous < ResponseStatus.values.length
+        ? ResponseStatus.values[previous]
+        : ResponseStatus.needsAction;
+    await acknowledgeWrite(item, sent, sent.copyWith(myResponse: response));
+  }
 
   Future<List<OutboxData>> pendingOutbox() => (_db.select(
     _db.outbox,

@@ -597,13 +597,22 @@ class SyncEngine {
         }
         await events.removeOutbox(item.id);
       } catch (e) {
-        blocked.add(effectiveEventId);
         failure ??= 'Изменение не отправлено: ${_describe(e)}';
         await accounts.recordSyncFailure(
           acc.id,
           AccountStatus.syncError,
           failure,
         );
+        if (item.op == 'rsvp' && e is UnsupportedError && current != null) {
+          await events.rejectUnsupportedReply(
+            item,
+            events.eventForOperation(item, current),
+          );
+          // Report the refusal, but never freeze later CRUD behind an operation
+          // the server cannot perform. Delivery failures are not UnsupportedError.
+          continue;
+        }
+        blocked.add(effectiveEventId);
         final attempts = item.retryCount + 1;
         await events.bumpRetry(item.id, attempts);
         // Постоянные ошибки (не поддерживается провайдером) ретраить бессмысленно

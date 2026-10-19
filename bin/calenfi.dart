@@ -430,8 +430,15 @@ Future<void> _rsvp(EventRepository events, AccountRepository accounts,
     'tentative' => ResponseStatus.tentative,
     _ => throw 'response must be accepted|declined|tentative',
   };
-  await events.putLocalDirty(e.copyWith(myResponse: resp));
-  final job = await events.enqueue('rsvp', e.id, {'resp': resp.index});
+  final account = (await accounts.allAccounts())
+      .where((a) => a.id == e.source.accountId).firstOrNull;
+  if (account == null) return _fail('invitation account not found');
+  final provider = registry.forAccount(account);
+  if (!provider.caps.rsvp) return _fail('invitation replies are not supported');
+  if (provider is InvitationResponseValidator) {
+    await (provider as InvitationResponseValidator).validateInviteResponse(account, e, resp);
+  }
+  final job = await events.queueInviteResponse(e, resp);
   final push = await _pushJob(events, accounts, registry, job);
   _ok({'id': e.id, 'response': f['response'], ...push});
 }

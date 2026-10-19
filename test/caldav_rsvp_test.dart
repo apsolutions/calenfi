@@ -1,3 +1,13 @@
+import 'package:calenfi/data/local/db/database.dart' show AppDatabase;
+import 'package:calenfi/data/providers/calendar/provider_registry.dart';
+import 'package:calenfi/data/repositories/account_repository.dart';
+import 'package:calenfi/data/repositories/event_repository.dart';
+import 'package:calenfi/domain/models/calendar.dart';
+import 'package:calenfi/domain/providers/calendar_provider.dart';
+import 'package:calenfi/domain/usecases/event_actions.dart';
+import 'package:calenfi/sync/sync_engine.dart';
+import 'package:drift/native.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -47,6 +57,13 @@ class _Server implements HttpClientAdapter {
   String? etag = '"fresh"';
   String? scheduleTag;
   int putStatus = 204;
+  int getStatus = 200;
+  String? deliveryStatus = '1.2';
+  void Function()? afterPut;
+  Completer<void>? readEntered;
+  Completer<void>? readRelease;
+  ({RequestOptions options, String body}) get lastPut =>
+      requests.lastWhere((r) => r.options.method == 'PUT');
   final requests = <({RequestOptions options, String body})>[];
 
   @override
@@ -63,6 +80,24 @@ class _Server implements HttpClientAdapter {
     }
     final data = utf8.decode(bytes);
     requests.add((options: options, body: data));
+    if (options.method == 'GET' && readRelease != null) {
+      final release = readRelease!;
+      readRelease = null;
+      readEntered?.complete();
+      await release.future;
+    }
+    if (options.method == 'PUT' && putStatus >= 200 && putStatus < 300) {
+      body = data
+          .replaceAll(RegExp(r';SCHEDULE-FORCE-SEND=REPLY'), '')
+          .replaceAll(RegExp(r';SCHEDULE-STATUS=(?:"[^"]*"|[^;:\r\n]*)'), '');
+      if (deliveryStatus != null) {
+        body = body.replaceAll(
+          'ORGANIZER;',
+          'ORGANIZER;SCHEDULE-STATUS="$deliveryStatus";',
+        );
+      }
+      afterPut?.call();
+    }
     return switch (options.method) {
       'OPTIONS' => ResponseBody.fromString(
         '',
@@ -73,7 +108,7 @@ class _Server implements HttpClientAdapter {
       ),
       'GET' => ResponseBody.fromString(
         body,
-        200,
+        getStatus,
         headers: {
           if (etag != null) 'etag': [etag!],
           if (scheduleTag != null) 'schedule-tag': [scheduleTag!],
@@ -109,8 +144,257 @@ CalendarEvent _event({String? recurrenceId, DateTime? start}) => CalendarEvent(
   ),
 );
 
+// Real RSVP transport plus a small pull/CRUD stub to exercise durable queue
+// handling without coupling the fixture to CalDAV discovery and REPORT XML.
+class _SyncProvider extends CalDavProvider {
+  _SyncProvider(this.server)
+    : super(
+        account: _account,
+        password: 'test',
+        dio: Dio()..httpClientAdapter = server,
+      );
+  final _Server server;
+  CalendarEvent remote = _event();
+  int updates = 0;
+  @override
+  Future<List<Calendar>> listCalendars(Account a) async => const [
+    Calendar(id: 'a|/calendar/', accountId: 'a', name: 'Work', color: 0),
+  ];
+  @override
+  Future<SyncResult> incrementalSync(
+    Account a,
+    Calendar c,
+    String? state,
+  ) async {
+    final partstat = parseIcs(server.body).first.attendees.first.partstat;
+    return SyncResult(
+      upserts: [
+        remote.copyWith(
+          myResponse: switch (partstat) {
+            'ACCEPTED' => ResponseStatus.accepted,
+            'TENTATIVE' => ResponseStatus.tentative,
+            'DECLINED' => ResponseStatus.declined,
+            _ => ResponseStatus.needsAction,
+          },
+        ),
+      ],
+      deletedIds: [],
+      newSyncState: null,
+    );
+  }
+
+  @override
+  Future<CalendarEvent> updateEvent(
+    Account a,
+    CalendarEvent e, {
+    RecurrenceScope scope = RecurrenceScope.thisOnly,
+    DateTime? originalStartUtc,
+  }) async {
+    updates++;
+    remote = e;
+    return e;
+  }
+}
+
+Future<void> _withSync(
+  _Server server,
+  Future<void> Function(EventRepository, SyncEngine, _SyncProvider) run,
+) async {
+  final db = AppDatabase(NativeDatabase.memory());
+  final accounts = AccountRepository(db);
+  final events = EventRepository(db);
+  final provider = _SyncProvider(server);
+  final sync = SyncEngine(
+    registry: ProviderRegistry(overrideFactory: (_) => provider),
+    accounts: accounts,
+    events: events,
+  );
+  try {
+    await accounts.upsertAccount(_account);
+    await sync.syncAccount(_account);
+    await run(events, sync, provider);
+  } finally {
+    server.readRelease?.complete();
+    await sync.whenIdle();
+    sync.dispose();
+    await db.close();
+  }
+}
+
 void main() {
   tz.initializeTimeZones();
+  for (final response in [
+    ResponseStatus.accepted,
+    ResponseStatus.tentative,
+    ResponseStatus.declined,
+  ]) {
+    test(
+      '$response on unsupported server leaves event and queue unchanged',
+      () async {
+        final server = _Server()..dav = '1, calendar-access';
+        await _withSync(server, (events, sync, provider) async {
+          await expectLater(
+            EventActions(events, sync).rsvp(_event(), response),
+            throwsA(isA<UnsupportedError>()),
+          );
+          expect(await events.pendingOutbox(), isEmpty);
+          expect(
+            (await events.getById(_event().id))!.myResponse,
+            ResponseStatus.needsAction,
+          );
+          await events.saveAndEnqueue(
+            _event().copyWith(title: 'Later edit'),
+            'update',
+          );
+          expect((await sync.syncAccount(_account)).ok, isTrue);
+          expect(provider.remote.title, 'Later edit');
+        });
+      },
+    );
+  }
+
+  test(
+    'preflight validates event scheduling agent before changing local status',
+    () async {
+      final server = _Server()
+        ..body = _ics.replaceAll(
+          'ORGANIZER;',
+          'ORGANIZER;SCHEDULE-AGENT=CLIENT;',
+        );
+      await _withSync(server, (events, sync, provider) async {
+        await expectLater(
+          EventActions(events, sync).rsvp(_event(), ResponseStatus.accepted),
+          throwsA(isA<UnsupportedError>()),
+        );
+        expect(await events.pendingOutbox(), isEmpty);
+        expect(
+          (await events.getById(_event().id))!.myResponse,
+          ResponseStatus.needsAction,
+        );
+      });
+    },
+  );
+
+  test(
+    'failed preflight read leaves no optimistic response or queued job',
+    () async {
+      final server = _Server()..getStatus = 503;
+      await _withSync(server, (events, sync, provider) async {
+        await expectLater(
+          EventActions(events, sync).rsvp(_event(), ResponseStatus.accepted),
+          throwsA(isA<DioException>()),
+        );
+        expect(await events.pendingOutbox(), isEmpty);
+        expect(
+          (await events.getById(_event().id))!.myResponse,
+          ResponseStatus.needsAction,
+        );
+      });
+    },
+  );
+
+  test('edit during preflight is preserved by the queued response', () async {
+    final server = _Server();
+    await _withSync(server, (events, sync, provider) async {
+      final release = Completer<void>();
+      server.readEntered = Completer<void>();
+      server.readRelease = release;
+      final reply = EventActions(
+        events,
+        sync,
+      ).rsvp(_event(), ResponseStatus.accepted);
+      await server.readEntered!.future;
+      try {
+        await events.saveAndEnqueue(
+          _event().copyWith(title: 'Edited during preflight'),
+          'update',
+        );
+      } finally {
+        release.complete();
+      }
+      await reply;
+      await sync.syncAccountById(_account.id);
+      await sync.whenIdle();
+      expect(
+        (await events.getById(_event().id))!.title,
+        'Edited during preflight',
+      );
+      expect(await events.pendingOutbox(), isEmpty);
+    });
+  });
+
+  test('deletion during preflight cannot resurrect the invitation', () async {
+    final server = _Server();
+    await _withSync(server, (events, sync, provider) async {
+      final release = Completer<void>();
+      server.readEntered = Completer<void>();
+      server.readRelease = release;
+      final reply = EventActions(
+        events,
+        sync,
+      ).rsvp(_event(), ResponseStatus.accepted);
+      final failure = expectLater(reply, throwsStateError);
+      await server.readEntered!.future;
+      try {
+        await events.hardDelete(_event().id);
+      } finally {
+        release.complete();
+      }
+      await failure;
+      expect(await events.getById(_event().id), isNull);
+      expect(await events.pendingOutbox(), isEmpty);
+    });
+  });
+
+  test(
+    'queued RSVP losing server support releases later edits and reports refusal',
+    () async {
+      final server = _Server();
+      await _withSync(server, (events, sync, provider) async {
+        await provider.validateInviteResponse(
+          _account,
+          _event(),
+          ResponseStatus.accepted,
+        );
+        await events.queueInviteResponse(_event(), ResponseStatus.accepted);
+        await events.saveAndEnqueue(
+          _event().copyWith(title: 'Later edit'),
+          'update',
+        );
+        server.dav = '1, calendar-access';
+        expect((await sync.syncAccount(_account)).ok, isFalse);
+        expect(await events.pendingOutbox(), isEmpty);
+        expect(provider.updates, 1);
+        expect((await events.getById(_event().id))!.title, 'Later edit');
+        expect(
+          (await events.getById(_event().id))!.myResponse,
+          ResponseStatus.needsAction,
+        );
+        expect(
+          (await sync.accounts.allAccounts()).single.lastError,
+          contains('не поддерживает'),
+        );
+      });
+    },
+  );
+
+  test('failed delivery remains visible and queued until confirmed', () async {
+    final server = _Server()..deliveryStatus = '5.1';
+    await _withSync(server, (events, sync, provider) async {
+      await events.queueInviteResponse(_event(), ResponseStatus.accepted);
+      expect((await sync.syncAccount(_account)).ok, isFalse);
+      expect(await events.pendingOutbox(), hasLength(1));
+      expect(
+        (await sync.accounts.allAccounts()).single.lastError,
+        contains('5.1'),
+      );
+      server.deliveryStatus = '1.2';
+      expect((await sync.syncAccount(_account)).ok, isTrue);
+      expect(await events.pendingOutbox(), isEmpty);
+      expect(server.lastPut.body, contains('SCHEDULE-FORCE-SEND=REPLY'));
+    });
+  });
+
   for (final response in [
     ResponseStatus.accepted,
     ResponseStatus.declined,
@@ -128,7 +412,7 @@ void main() {
         expect(
           put.body,
           contains(
-            'PARTSTAT=${response.name.toUpperCase()};RSVP=FALSE:mailto:ME@example.org',
+            'RSVP=TRUE;PARTSTAT=${response.name.toUpperCase()}:mailto:ME@example.org',
           ),
         );
         for (final preserved in [
@@ -158,7 +442,7 @@ void main() {
       _event(),
       ResponseStatus.accepted,
     );
-    final headers = server.requests.last.options.headers;
+    final headers = server.lastPut.options.headers;
     expect(headers['If-Schedule-Tag-Match'], '"schedule"');
     expect(headers.containsKey('If-Match'), isFalse);
   });
@@ -237,15 +521,15 @@ void main() {
         'SUMMARY:Changed remotely',
       );
     await provider.respondToInvite(_account, _event(), ResponseStatus.accepted);
-    expect(server.requests.last.options.headers['If-Match'], '"new"');
-    expect(server.requests.last.body, contains('SUMMARY:Changed remotely'));
+    expect(server.lastPut.options.headers['If-Match'], '"new"');
+    expect(server.lastPut.body, contains('SUMMARY:Changed remotely'));
   });
 
   test('retry after successful PUT does not send a duplicate reply', () async {
     final server = _Server();
     final provider = server.provider();
     await provider.respondToInvite(_account, _event(), ResponseStatus.accepted);
-    server.body = server.requests.last.body;
+    // The server retains its delivery status after the first PUT.
     server.requests.clear();
     await provider.respondToInvite(_account, _event(), ResponseStatus.accepted);
     expect(server.requests.where((r) => r.options.method == 'PUT'), isEmpty);
@@ -274,7 +558,7 @@ void main() {
         ),
         ResponseStatus.tentative,
       );
-      final body = server.requests.last.body;
+      final body = server.lastPut.body;
       expect(
         body,
         startsWith(original.substring(0, original.indexOf('END:VCALENDAR'))),
@@ -317,7 +601,7 @@ void main() {
       ),
       ResponseStatus.declined,
     );
-    final events = parseIcs(server.requests.last.body);
+    final events = parseIcs(server.lastPut.body);
     expect(events, hasLength(2));
     expect(events.first.attendees.first.partstat, 'NEEDS-ACTION');
     expect(events.last.startUtc, DateTime.utc(2026, 9, 4, 12));
@@ -338,7 +622,7 @@ void main() {
       _event(recurrenceId: '${day.millisecondsSinceEpoch}', start: day),
       ResponseStatus.accepted,
     );
-    final body = server.requests.last.body;
+    final body = server.lastPut.body;
     expect(body, contains('RECURRENCE-ID;VALUE=DATE:20260904'));
     final exception = parseIcs(body).last;
     expect(exception.allDay, isTrue);
@@ -373,6 +657,194 @@ void main() {
         throwsA(isA<UnsupportedError>()),
       );
       expect(server.requests.where((r) => r.options.method == 'PUT'), isEmpty);
+    },
+  );
+
+  for (final response in [
+    ResponseStatus.accepted,
+    ResponseStatus.tentative,
+    ResponseStatus.declined,
+  ]) {
+    for (final status in [
+      '3.7',
+      '3.8',
+      '5.1',
+      '5.2',
+      '5.3',
+      '1.0',
+      '1.2,5.2',
+      null,
+    ]) {
+      test(
+        '$response with delivery status $status is not acknowledged',
+        () async {
+          final server = _Server()..deliveryStatus = status;
+          final provider = server.provider();
+          await expectLater(
+            provider.respondToInvite(_account, _event(), response),
+            throwsStateError,
+          );
+          final puts = server.requests
+              .where((r) => r.options.method == 'PUT')
+              .length;
+          await expectLater(
+            provider.respondToInvite(_account, _event(), response),
+            throwsStateError,
+          );
+          expect(
+            server.requests.where((r) => r.options.method == 'PUT'),
+            hasLength(puts + (status == '5.1' ? 1 : 0)),
+          );
+        },
+      );
+    }
+  }
+
+  for (final status in ['1.1', '1.2', '2.0']) {
+    test('confirmed delivery $status is idempotent', () async {
+      final server = _Server()..deliveryStatus = status;
+      final provider = server.provider();
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      expect(
+        server.requests.where((r) => r.options.method == 'PUT'),
+        hasLength(1),
+      );
+    });
+  }
+
+  test(
+    'organizer RSVP flag is preserved and does not duplicate confirmed replies',
+    () async {
+      final server = _Server();
+      server.afterPut = () =>
+          server.body = server.body.replaceAll('RSVP=FALSE', 'RSVP=TRUE');
+      final provider = server.provider();
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      expect(
+        server.requests.where((r) => r.options.method == 'PUT'),
+        hasLength(1),
+      );
+      expect(server.lastPut.body, contains('RSVP=TRUE'));
+    },
+  );
+
+  test(
+    'temporary delivery failure retries with REPLY and then becomes idempotent',
+    () async {
+      final server = _Server()..deliveryStatus = '5.1';
+      final provider = server.provider();
+      await expectLater(
+        provider.respondToInvite(_account, _event(), ResponseStatus.accepted),
+        throwsStateError,
+      );
+      server.deliveryStatus = '1.2';
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      expect(server.lastPut.body, contains('SCHEDULE-FORCE-SEND=REPLY'));
+      expect(
+        parseIcs(server.lastPut.body).single.attendees.last.email,
+        'alarm@example.org',
+      );
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      expect(
+        server.requests.where((r) => r.options.method == 'PUT'),
+        hasLength(2),
+      );
+    },
+  );
+
+  test('pending delivery is polled without sending another reply', () async {
+    final server = _Server()..deliveryStatus = '1.0';
+    final provider = server.provider();
+    await expectLater(
+      provider.respondToInvite(_account, _event(), ResponseStatus.accepted),
+      throwsStateError,
+    );
+    server.body = server.body.replaceAll(
+      'SCHEDULE-STATUS="1.0"',
+      'SCHEDULE-STATUS="1.2"',
+    );
+    await provider.respondToInvite(_account, _event(), ResponseStatus.accepted);
+    expect(
+      server.requests.where((r) => r.options.method == 'PUT'),
+      hasLength(1),
+    );
+  });
+
+  test(
+    'failed read after PUT retries by confirming delivery without duplicate PUT',
+    () async {
+      final server = _Server();
+      server.afterPut = () => server.getStatus = 503;
+      final provider = server.provider();
+      await expectLater(
+        provider.respondToInvite(_account, _event(), ResponseStatus.accepted),
+        throwsA(isA<DioException>()),
+      );
+      server.getStatus = 200;
+      await provider.respondToInvite(
+        _account,
+        _event(),
+        ResponseStatus.accepted,
+      );
+      expect(
+        server.requests.where((r) => r.options.method == 'PUT'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'recurring reply checks delivery on its exception, not on the master',
+    () async {
+      final server = _Server()
+        ..body = _ics.replaceAll(
+          'DTSTART:',
+          'RRULE:FREQ=DAILY;COUNT=3\nDTSTART:',
+        );
+      server.afterPut = () {
+        // The master succeeded earlier, but delivery for the new exception failed.
+        final firstEnd = server.body.indexOf('END:VEVENT');
+        server.body =
+            server.body.substring(0, firstEnd) +
+            server.body
+                .substring(firstEnd)
+                .replaceAll('SCHEDULE-STATUS="1.2"', 'SCHEDULE-STATUS="5.2"');
+      };
+      final day = DateTime.utc(2026, 9, 4, 10);
+      await expectLater(
+        server.provider().respondToInvite(
+          _account,
+          _event(recurrenceId: '${day.millisecondsSinceEpoch}', start: day),
+          ResponseStatus.accepted,
+        ),
+        throwsStateError,
+      );
     },
   );
 
