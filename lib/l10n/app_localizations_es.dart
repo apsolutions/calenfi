@@ -9,6 +9,9 @@ class L10nEs extends L10n {
   L10nEs([String locale = 'es']) : super(locale);
 
   @override
+  String get setInterfaceScale => 'Escala de la interfaz';
+
+  @override
   String get accAddAccount => 'Añadir cuenta';
 
   @override

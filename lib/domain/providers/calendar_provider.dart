@@ -93,3 +93,14 @@ abstract class CalendarProvider {
   // --- приглашения ---
   Future<void> respondToInvite(Account acc, CalendarEvent e, ResponseStatus r);
 }
+
+/// Providers whose invitation support depends on the server and event must
+/// validate before optimistic local changes are queued. Validation is read-only;
+/// respondToInvite must recheck because the server may change afterwards.
+abstract interface class InvitationResponseValidator {
+  Future<void> validateInviteResponse(
+    Account account,
+    CalendarEvent event,
+    ResponseStatus response,
+  );
+}

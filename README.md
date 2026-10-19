@@ -28,6 +28,8 @@ on-device, editable offline.
 - **Conferences** — attach real Teams / Meet / Zoom / Telemost meetings,
   independent of which calendar hosts the event.
 - **Per-calendar overrides** — visibility, colour and default reminders.
+- **Invitation replies** — accept, decline or tentatively accept invitations,
+  including CalDAV servers with automatic scheduling (such as Yandex).
 - **Reminders & widgets** — local notifications, a home-screen agenda widget on
   Android, and two WidgetKit widgets on macOS: today's agenda and a translucent
   mini month calendar you can page through right in the widget.
@@ -222,7 +224,14 @@ They cover acceptance, tentative (maybe), decline, rescheduling and cancellation
 provider HTTP/SOAP failures; queued actions during refresh/upload; and cancellation
 of moved recurring or all-day CalDAV occurrences followed by another pull.
 Transports are simulated, so these tests send no real invitations or cancellations.
-CalDAV RSVP is currently unsupported and is tested for an explicit error.
+CalDAV replies require an online, read-only check of the server's automatic
+scheduling support and the invitation before changing local state. Unsupported
+replies show an error and do not block later edits. After a reply is saved,
+Calenfi checks the organizer's delivery status; failed, pending or unconfirmed
+delivery stays visible in the sync status and queue. Temporary delivery failures
+use a forced REPLY on retry; confirmed replies are not sent twice.
+`test/caldav_rsvp_test.dart` covers these delivery states, capability changes,
+and edits or deletion during preflight.
 Exchange currently edits individual occurrences; changing an entire recurring
 series is not supported by its adapter.
 

@@ -3,7 +3,7 @@ import '../models/enums.dart';
 /// Возможности конкретного адаптера (docs/architecture.md §6).
 ///
 /// UI и use cases включают фичи по этим флагам, а НЕ по типу провайдера —
-/// так MVP-ограничения из матрицы ФТ §6 (RSVP в CalDAV/EWS позже и т.п.)
+/// так ограничения адаптеров из матрицы ФТ §6
 /// выражаются данными, а не ветвлениями `if (provider == ...)`.
 class ProviderCapabilities {
   const ProviderCapabilities({
@@ -43,7 +43,7 @@ class ProviderCapabilities {
   static const caldav = ProviderCapabilities(
     crud: true,
     incrementalSync: true,
-    rsvp: false, // FR-R4 — позже
+    rsvp: true, // Requires server-side CalDAV Scheduling.
     createNativeConference: false,
     serverReminders: true, // VALARM
     attendees: false, // FR-E9 — позже

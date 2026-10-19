@@ -198,17 +198,9 @@ class _EventDetails extends ConsumerWidget {
 
             const SizedBox(height: 16),
 
-            // RSVP (FR-R2) — только если провайдер аккаунта его поддерживает
-            // (CalDAV пока нет; иначе нажатие молча падало в outbox).
+            // Server-dependent support is validated before optimistic changes.
             if (e.myResponse != ResponseStatus.organizer && _rsvpSupported(ref, e))
-              Wrap(spacing: 8, children: [
-                _rsvpChip(context, ref, e, ResponseStatus.accepted,
-                    l10n.detAccept),
-                _rsvpChip(context, ref, e, ResponseStatus.tentative,
-                    l10n.detTentative),
-                _rsvpChip(context, ref, e, ResponseStatus.declined,
-                    l10n.detDecline),
-              ]),
+              _InvitationResponses(event: e),
 
             const SizedBox(height: 12),
             Wrap(spacing: 10, runSpacing: 8, children: [
@@ -256,22 +248,55 @@ class _EventDetails extends ConsumerWidget {
     return ProviderCapabilities.forProvider(acc.provider).rsvp;
   }
 
-  Widget _rsvpChip(BuildContext context, WidgetRef ref, CalendarEvent e,
-      ResponseStatus r, String label) {
-    final selected = e.myResponse == r;
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) async {
-        await ref.read(eventActionsProvider).rsvp(e, r);
-        if (context.mounted) Navigator.pop(context);
-      },
-    );
-  }
-
   static Future<void> _launch(String url) async {
     final uri = Uri.tryParse(url);
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
+class _InvitationResponses extends ConsumerStatefulWidget {
+  const _InvitationResponses({required this.event});
+  final CalendarEvent event;
+
+  @override
+  ConsumerState<_InvitationResponses> createState() => _InvitationResponsesState();
+}
+
+class _InvitationResponsesState extends ConsumerState<_InvitationResponses> {
+  bool _busy = false;
+
+  Future<void> _respond(ResponseStatus response) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(eventActionsProvider).rsvp(widget.event, response);
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is UnsupportedError ? error.message :
+          'Не удалось проверить отправку ответа. Проверьте подключение и повторите.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(message ?? 'Ответ на приглашение не поддерживается')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = L10n.of(context);
+    final labels = {
+      ResponseStatus.accepted: l10n.detAccept,
+      ResponseStatus.tentative: l10n.detTentative,
+      ResponseStatus.declined: l10n.detDecline,
+    };
+    return Wrap(spacing: 8, children: [
+      for (final entry in labels.entries)
+        ChoiceChip(label: Text(entry.value),
+            selected: widget.event.myResponse == entry.key,
+            onSelected: _busy ? null : (_) => _respond(entry.key)),
+      if (_busy) const SizedBox(width: 20, height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2)),
+    ]);
   }
 }
 

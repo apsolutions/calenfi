@@ -146,7 +146,7 @@ void main() {
                   provider.respondToInvite(account, invitation, response),
                   throwsUnsupportedError,
                 );
-                expect(http.calls, isEmpty);
+                expect(http.calls.single.method, 'OPTIONS');
                 return;
               }
               await provider.respondToInvite(account, invitation, response);

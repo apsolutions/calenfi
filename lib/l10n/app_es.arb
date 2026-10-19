@@ -1,4 +1,5 @@
 {
+  "setInterfaceScale": "Escala de la interfaz",
   "@@locale": "es",
   "accAddAccount": "Añadir cuenta",
   "accAppPassword": "Contraseña de aplicación",

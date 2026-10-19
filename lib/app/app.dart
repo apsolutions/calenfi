@@ -7,6 +7,7 @@ import '../features/notifications/notification_sync.dart';
 import '../features/widget/agenda_widget_service.dart';
 import 'bootstrap.dart';
 import 'locale_provider.dart';
+import 'interface_scale.dart';
 import 'providers.dart';
 import 'theme.dart';
 
@@ -19,6 +20,7 @@ class CalenfiApp extends ConsumerWidget {
     ref.watch(notificationSyncProvider); // напоминания о начале встреч (FR-N)
     ref.watch(periodicSyncProvider); // регулярная автосинхронизация (FR-S2)
     ref.watch(notesSyncLoopProvider); // личные заметки между устройствами
+    final scale = supportsInterfaceScale ? ref.watch(interfaceScaleProvider) : 1.0;
     return MaterialApp(
       title: 'Calenfi',
       debugShowCheckedModeBanner: false,
@@ -26,6 +28,10 @@ class CalenfiApp extends ConsumerWidget {
       locale: ref.watch(localeProvider),
       localizationsDelegates: L10n.localizationsDelegates,
       supportedLocales: L10n.supportedLocales,
+      builder: (context, child) => InterfaceScale(
+        scale: scale,
+        child: child!,
+      ),
       home: const _Bootstrap(child: CalendarScreen()),
     );
   }

@@ -403,6 +403,9 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
   }
 
   List<Widget> _buildNowLine(double colW, DateTime now) {
+    final di = widget.days.indexWhere((d) =>
+        d.year == now.year && d.month == now.month && d.day == now.day);
+    if (di < 0) return const [];
     final top = (now.hour * 60 + now.minute) / 60 * kHourHeight;
     final hm =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
@@ -429,21 +432,17 @@ class _TimeGridState extends ConsumerState<TimeGrid> {
       ),
     ];
     // на колонке сегодняшнего дня — жирнее + точка
-    final di = widget.days.indexWhere((d) =>
-        d.year == now.year && d.month == now.month && d.day == now.day);
-    if (di >= 0) {
-      widgets.add(Positioned(
-        top: top - 3.5,
-        left: kGutterWidth + di * colW,
-        width: colW,
-        child: Row(children: const [
-          _NowDot(),
-          Expanded(
-              child: ColoredBox(
-                  color: Color(0xFFE53935), child: SizedBox(height: 2.5))),
-        ]),
-      ));
-    }
+    widgets.add(Positioned(
+      top: top - 3.5,
+      left: kGutterWidth + di * colW,
+      width: colW,
+      child: Row(children: const [
+        _NowDot(),
+        Expanded(
+            child: ColoredBox(
+                color: Color(0xFFE53935), child: SizedBox(height: 2.5))),
+      ]),
+    ));
     return widgets;
   }
 

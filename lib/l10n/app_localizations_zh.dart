@@ -9,6 +9,9 @@ class L10nZh extends L10n {
   L10nZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get setInterfaceScale => '界面缩放';
+
+  @override
   String get accAddAccount => '添加账户';
 
   @override

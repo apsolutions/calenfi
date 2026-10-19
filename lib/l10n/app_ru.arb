@@ -1,4 +1,5 @@
 {
+  "setInterfaceScale": "Масштаб интерфейса",
   "@@locale": "ru",
   "accAddAccount": "Добавить учётную запись",
   "accAppPassword": "Пароль приложения",

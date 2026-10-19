@@ -6,6 +6,7 @@ import '../../data/repositories/event_repository.dart';
 import '../../sync/sync_engine.dart';
 import '../models/calendar_event.dart';
 import '../models/enums.dart';
+import '../providers/calendar_provider.dart';
 
 /// Действия пользователя над событиями (FR-E, FR-R).
 ///
@@ -51,9 +52,25 @@ class EventActions {
   }
 
   Future<void> rsvp(CalendarEvent e, ResponseStatus r) async {
-    await _events.saveAndEnqueue(e.copyWith(myResponse: r), 'rsvp', {
-      'resp': r.index,
-    });
+    final accounts = await _sync.accounts.allAccounts();
+    final account = accounts
+        .where((a) => a.id == e.source.accountId)
+        .firstOrNull;
+    if (account == null) throw StateError('Аккаунт приглашения не найден');
+    final provider = _sync.registry.forAccount(account);
+    if (!provider.caps.rsvp) {
+      throw UnsupportedError(
+        'Этот календарь не поддерживает ответы на приглашения',
+      );
+    }
+    if (provider is InvitationResponseValidator) {
+      await (provider as InvitationResponseValidator).validateInviteResponse(
+        account,
+        e,
+        r,
+      );
+    }
+    await _events.queueInviteResponse(e, r);
     _kickSync(e);
   }
 

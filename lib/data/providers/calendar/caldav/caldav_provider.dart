@@ -4,6 +4,7 @@ import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:rrule/rrule.dart';
+import 'package:timezone/timezone.dart' as tz;
 import 'package:xml/xml.dart';
 
 import '../../../../domain/models/account.dart';
@@ -102,7 +103,7 @@ class _RawVEvent {
 
 /// Реальный адаптер CalDAV (Yandex и совместимые). App-password + Basic auth.
 /// Параметры host/port/principal — из [Account.config] (FR-A3).
-class CalDavProvider implements CalendarProvider {
+class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
   CalDavProvider({required this.account, required this.password, Dio? dio})
     : _dio = dio ?? Dio() {
     _dio.options
@@ -871,10 +872,14 @@ class CalDavProvider implements CalendarProvider {
     final occ = recurrenceMillis == null
         ? e.startUtc.toUtc()
         : DateTime.fromMillisecondsSinceEpoch(recurrenceMillis, isUtc: true);
-    final family = _rawVEvents(ics).where(
-      (component) => _canonicalUid(acc, cal, component.event.uid) == uid,
-    ).toList();
-    if (!family.any((c) => c.event.recurrenceIdUtc == null && c.event.rrule != null)) {
+    final family = _rawVEvents(ics)
+        .where(
+          (component) => _canonicalUid(acc, cal, component.event.uid) == uid,
+        )
+        .toList();
+    if (!family.any(
+      (c) => c.event.recurrenceIdUtc == null && c.event.rrule != null,
+    )) {
       throw const FormatException('CalDAV delete: мастер серии не найден');
     }
     // Remove moved exceptions too, otherwise pull overlays them onto EXDATE
@@ -890,9 +895,17 @@ class CalDavProvider implements CalendarProvider {
       } else if (component.event.rrule != null) {
         replacement = scope == RecurrenceScope.thisOnly
             ? _addExdate(replacement, occ, allDay: component.event.allDay)
-            : _setRruleUntil(replacement, occ.subtract(const Duration(seconds: 1)), allDay: component.event.allDay);
+            : _setRruleUntil(
+                replacement,
+                occ.subtract(const Duration(seconds: 1)),
+                allDay: component.event.allDay,
+              );
       }
-      ics = ics.replaceRange(component.match.start, component.match.end, replacement);
+      ics = ics.replaceRange(
+        component.match.start,
+        component.match.end,
+        replacement,
+      );
     }
     final etag = resp.headers.value('etag')?.trim() ?? e.source.etag?.trim();
     await _dio.requestUri(
@@ -1043,14 +1056,22 @@ class CalDavProvider implements CalendarProvider {
   static String _addExdate(String ics, DateTime occ, {bool allDay = false}) {
     final m = RegExp(r'^RRULE:[^\r\n]*', multiLine: true).firstMatch(ics);
     if (m == null) return ics;
-    final exclusion = allDay ? 'EXDATE;VALUE=DATE:${_icsStamp(occ).substring(0, 8)}' : 'EXDATE:${_icsStamp(occ)}';
+    final exclusion = allDay
+        ? 'EXDATE;VALUE=DATE:${_icsStamp(occ).substring(0, 8)}'
+        : 'EXDATE:${_icsStamp(occ)}';
     return '${ics.substring(0, m.end)}\r\n$exclusion${ics.substring(m.end)}';
   }
 
   /// Ставит UNTIL в RRULE (убирая конфликтующие UNTIL/COUNT).
-  static String _setRruleUntil(String ics, DateTime until, {bool allDay = false}) {
+  static String _setRruleUntil(
+    String ics,
+    DateTime until, {
+    bool allDay = false,
+  }) {
     final u = allDay ? _icsStamp(until).substring(0, 8) : _icsStamp(until);
-    return ics.replaceAllMapped(RegExp(r'^RRULE:([^\r\n]*)', multiLine: true), (m) {
+    return ics.replaceAllMapped(RegExp(r'^RRULE:([^\r\n]*)', multiLine: true), (
+      m,
+    ) {
       final parts =
           m
               .group(1)!
@@ -1067,13 +1088,364 @@ class CalDavProvider implements CalendarProvider {
     });
   }
 
+  Future<Uri> _inviteUri(Account acc, CalendarEvent e, ResponseStatus r) async {
+    if (!{
+      ResponseStatus.accepted,
+      ResponseStatus.declined,
+      ResponseStatus.tentative,
+    }.contains(r)) {
+      throw ArgumentError.value(
+        r,
+        'response',
+        'Unsupported invitation response',
+      );
+    }
+    if (acc.id != account.id ||
+        e.source.accountId != acc.id ||
+        e.source.providerEventId == null) {
+      throw ArgumentError('CalDAV RSVP: событие не принадлежит аккаунту');
+    }
+    final uri = Uri.parse(
+      _url(_resourceHref(_calOf(e), e, _uidOf(acc, _calOf(e), e))),
+    );
+    if (uri.origin != Uri.parse(_base).origin || uri.userInfo.isNotEmpty) {
+      throw ArgumentError('CalDAV RSVP: ресурс находится на другом сервере');
+    }
+    final capabilities = await _dio.requestUri(
+      uri,
+      options: _requestOptions('OPTIONS')..followRedirects = false,
+    );
+    final dav = (capabilities.headers['dav'] ?? const <String>[])
+        .expand((value) => value.split(','))
+        .map((value) => value.trim().toLowerCase());
+    if (!dav.contains('calendar-auto-schedule')) {
+      throw UnsupportedError(
+        'CalDAV-сервер не поддерживает автоматическую отправку ответов',
+      );
+    }
+    return uri;
+  }
+
+  Future<Response<dynamic>> _readInvite(Uri uri) => _dio.requestUri(
+    uri,
+    options: _requestOptions('GET')..followRedirects = false,
+  );
+
+  @override
+  Future<void> validateInviteResponse(
+    Account acc,
+    CalendarEvent e,
+    ResponseStatus r,
+  ) async {
+    final uri = await _inviteUri(acc, e, r);
+    final existing = await _readInvite(uri);
+    _mergeInviteReply(
+      acc,
+      _calOf(e),
+      e,
+      _uidOf(acc, _calOf(e), e),
+      existing.data.toString(),
+      _partstatIcs(r),
+    );
+    _requireInviteVersion(existing);
+  }
+
+  static void _requireInviteVersion(Response<dynamic> response) {
+    if ((response.headers.value('schedule-tag')?.trim().isEmpty ?? true) &&
+        (response.headers.value('etag')?.trim().isEmpty ?? true)) {
+      throw UnsupportedError('CalDAV RSVP: сервер не вернул версию события');
+    }
+  }
+
   @override
   Future<void> respondToInvite(
     Account acc,
     CalendarEvent e,
     ResponseStatus r,
   ) async {
-    throw UnsupportedError('RSVP по CalDAV не поддержан в MVP (FR-R4)');
+    final uri = await _inviteUri(acc, e, r);
+    final cal = _calOf(e);
+    final uid = _uidOf(acc, cal, e);
+    final existing = await _readInvite(uri);
+    final original = existing.data.toString();
+    var body = _mergeInviteReply(acc, cal, e, uid, original, _partstatIcs(r));
+    if (body == original) {
+      final codes = _replyDeliveryCodes(acc, cal, e, uid, original);
+      // Only a known temporary delivery failure warrants another REPLY. Pending,
+      // unknown and permanent failures must never generate duplicate messages.
+      if (codes.isNotEmpty &&
+          codes.contains('5.1') &&
+          codes.every((c) => c == '5.1' || _deliverySucceeded(c))) {
+        body = _mergeInviteReply(
+          acc,
+          cal,
+          e,
+          uid,
+          original,
+          _partstatIcs(r),
+          forceReply: true,
+        );
+      } else {
+        _requireReplyDelivered(codes);
+        return;
+      }
+    }
+    _requireInviteVersion(existing);
+    final scheduleTag = existing.headers.value('schedule-tag')?.trim();
+    await _dio.requestUri(
+      uri,
+      data: body,
+      options: _requestOptions(
+        'PUT',
+        headers: {
+          'Content-Type': 'text/calendar; charset=utf-8',
+          if (scheduleTag != null && scheduleTag.isNotEmpty)
+            'If-Schedule-Tag-Match': scheduleTag
+          else
+            'If-Match': existing.headers.value('etag')!.trim(),
+        },
+      )..followRedirects = false,
+    );
+    // RFC 6638: successful PUT stores the resource; ORGANIZER SCHEDULE-STATUS
+    // separately records delivery. A failed read leaves the durable queue intact.
+    final saved = (await _readInvite(uri)).data.toString();
+    if (_mergeInviteReply(acc, cal, e, uid, saved, _partstatIcs(r)) != saved) {
+      throw StateError('CalDAV: сервер не подтвердил сохранение ответа');
+    }
+    _requireReplyDelivered(_replyDeliveryCodes(acc, cal, e, uid, saved));
+  }
+
+  List<String> _replyDeliveryCodes(
+    Account acc,
+    Calendar cal,
+    CalendarEvent event,
+    String uid,
+    String ics,
+  ) {
+    final family = _rawVEvents(
+      ics,
+    ).where((c) => _canonicalUid(acc, cal, c.event.uid) == uid).toList();
+    final millis = event.recurrenceId == null
+        ? null
+        : int.tryParse(event.recurrenceId!);
+    final target =
+        family.firstWhereOrNull(
+          (c) => c.event.recurrenceIdUtc?.millisecondsSinceEpoch == millis,
+        ) ??
+        family.firstWhereOrNull((c) => c.event.recurrenceIdUtc == null);
+    if (target == null) return const [];
+    var depth = 0;
+    final raw = target.match.group(0)!;
+    for (final block in _logicalPropertyBlocks(
+      raw,
+      raw.contains('\r\n') ? '\r\n' : '\n',
+    )) {
+      final property = IcsProperty.parse(
+        block.replaceAll(RegExp(r'\r?\n[ \t]'), ''),
+      );
+      if (property == null) continue;
+      if (property.name == 'BEGIN') depth++;
+      if (property.name == 'END') depth--;
+      if (depth == 1 && property.name == 'ORGANIZER') {
+        return property.params['SCHEDULE-STATUS']
+                ?.split(',')
+                .map((c) => c.trim())
+                .toList() ??
+            const [];
+      }
+    }
+    return const [];
+  }
+
+  static bool _deliverySucceeded(String code) =>
+      code == '1.1' || code == '1.2' || code == '2.0';
+
+  static void _requireReplyDelivered(List<String> codes) {
+    if (codes.isNotEmpty && codes.every(_deliverySucceeded)) return;
+    final reason = codes.isEmpty
+        ? 'сервер не сообщил статус доставки'
+        : codes.contains('1.0')
+        ? 'доставка ещё ожидается'
+        : 'ошибка доставки: ${codes.join(', ')}';
+    throw StateError(
+      'Ответ сохранён, но отправка организатору не подтверждена: $reason',
+    );
+  }
+
+  String _mergeInviteReply(
+    Account acc,
+    Calendar cal,
+    CalendarEvent event,
+    String uid,
+    String ics,
+    String response, {
+    bool forceReply = false,
+  }) {
+    final family = _rawVEvents(
+      ics,
+    ).where((c) => _canonicalUid(acc, cal, c.event.uid) == uid).toList();
+    final recurrenceId = event.recurrenceId;
+    final millis = recurrenceId == null ? null : int.tryParse(recurrenceId);
+    if (recurrenceId != null && millis == null) {
+      throw UnsupportedError('CalDAV RSVP: неизвестный RECURRENCE-ID');
+    }
+    final target = family.firstWhereOrNull(
+      (c) => c.event.recurrenceIdUtc?.millisecondsSinceEpoch == millis,
+    );
+    final master = family.firstWhereOrNull(
+      (c) => c.event.recurrenceIdUtc == null && c.event.rrule != null,
+    );
+    final source = target ?? (millis != null ? master : null);
+    if (source == null) {
+      throw UnsupportedError('CalDAV RSVP: исходное приглашение не найдено');
+    }
+    if (target == null) {
+      final occurrence = DateTime.fromMillisecondsSinceEpoch(
+        millis!,
+        isUtc: true,
+      );
+      final instances = _expand(
+        acc,
+        cal,
+        source.event,
+        '',
+        null,
+        DateRange(occurrence, occurrence),
+      );
+      if (!instances.any((instance) => instance.recurrenceId == recurrenceId)) {
+        throw UnsupportedError('CalDAV RSVP: экземпляр исключён из серии');
+      }
+    }
+    final raw = source.match.group(0)!;
+    final replacement = _replyVEvent(
+      raw,
+      acc.email,
+      response,
+      occurrence: target == null
+          ? DateTime.fromMillisecondsSinceEpoch(millis!, isUtc: true)
+          : null,
+      duration: source.event.endUtc.difference(source.event.startUtc),
+      forceReply: forceReply,
+    );
+    if (replacement == raw) return ics;
+    if (target == null) return _insertVEvent(ics, replacement);
+    return ics.replaceRange(target.match.start, target.match.end, replacement);
+  }
+
+  String _replyVEvent(
+    String raw,
+    String email,
+    String response, {
+    DateTime? occurrence,
+    required Duration duration,
+    bool forceReply = false,
+  }) {
+    final eol = raw.contains('\r\n') ? '\r\n' : '\n';
+    final blocks = _logicalPropertyBlocks(raw, eol);
+    final result = <String>[];
+    var depth = 0;
+    var foundAttendee = false;
+    var foundOrganizer = false;
+    var changed = false;
+    var stampIndex = -1;
+    for (final block in blocks) {
+      final property = IcsProperty.parse(
+        block.replaceAll(RegExp(r'\r?\n[ \t]'), ''),
+      );
+      if (property == null) {
+        result.add(block);
+        continue;
+      }
+      if (property.name == 'BEGIN') depth++;
+      if (property.name == 'END') depth--;
+      if (depth != 1) {
+        result.add(block);
+        continue;
+      }
+      if (property.name == 'STATUS' &&
+          property.value.toUpperCase() == 'CANCELLED') {
+        throw UnsupportedError('CalDAV RSVP: встреча отменена организатором');
+      }
+      if (property.name == 'ORGANIZER') {
+        final organizer = Uri.tryParse(property.value);
+        if (organizer?.scheme.toLowerCase() != 'mailto' ||
+            organizer!.path.toLowerCase() == email.toLowerCase() ||
+            (property.params['SCHEDULE-AGENT'] ?? 'SERVER').toUpperCase() !=
+                'SERVER') {
+          throw UnsupportedError(
+            'CalDAV RSVP: приглашение не допускает ответ через сервер',
+          );
+        }
+        foundOrganizer = true;
+        if (forceReply) {
+          changed = true;
+          result.add(property.withParameters({'SCHEDULE-FORCE-SEND': 'REPLY'}));
+          continue;
+        }
+      }
+      if (property.name == 'ATTENDEE') {
+        final attendee = Uri.tryParse(property.value);
+        if (attendee?.scheme.toLowerCase() == 'mailto' &&
+            attendee!.path.toLowerCase() == email.toLowerCase()) {
+          foundAttendee = true;
+          // RSVP is the organizer's request for a reply, not a delivery flag.
+          // Keep it intact, including when the server retains RSVP=TRUE.
+          changed |= property.params['PARTSTAT']?.toUpperCase() != response;
+          result.add(property.withParameters({'PARTSTAT': response}));
+          continue;
+        }
+      }
+      if (property.name == 'DTSTAMP') stampIndex = result.length;
+      if (occurrence != null) {
+        if ({'RRULE', 'RDATE', 'EXDATE', 'EXRULE'}.contains(property.name)) {
+          continue;
+        }
+        if (property.name == 'DTSTART') {
+          result.add(_replyDate('RECURRENCE-ID', occurrence, property));
+          result.add(_replyDate('DTSTART', occurrence, property));
+          continue;
+        }
+        if (property.name == 'DTEND') {
+          result.add(_replyDate('DTEND', occurrence.add(duration), property));
+          continue;
+        }
+      }
+      result.add(block);
+    }
+    if (!foundOrganizer || !foundAttendee) {
+      throw UnsupportedError(
+        'CalDAV RSVP: организатор или текущий участник не найден',
+      );
+    }
+    if (!changed) return raw;
+    final stamp = 'DTSTAMP:${_z(DateTime.now())}';
+    if (stampIndex >= 0) {
+      result[stampIndex] = stamp;
+    } else {
+      result.insert(1, stamp);
+    }
+    return result.join(eol);
+  }
+
+  static String _replyDate(
+    String name,
+    DateTime instant,
+    IcsProperty template,
+  ) {
+    String pad(int value, [int width = 2]) => '$value'.padLeft(width, '0');
+    if (template.params['VALUE'] == 'DATE' || template.value.length == 8) {
+      return '$name;VALUE=DATE:${pad(instant.year, 4)}${pad(instant.month)}${pad(instant.day)}';
+    }
+    final tzid = template.params['TZID'];
+    if (tzid == null && template.value.endsWith('Z')) {
+      return '$name:${_icsStamp(instant)}';
+    }
+    final local = tzid == null
+        ? instant.toLocal()
+        : tz.TZDateTime.from(instant, tz.getLocation(tzid));
+    final value =
+        '${pad(local.year, 4)}${pad(local.month)}${pad(local.day)}T${pad(local.hour)}${pad(local.minute)}${pad(local.second)}';
+    return '$name${tzid == null ? '' : ';TZID="$tzid"'}:$value';
   }
 
   // ───────── helpers ─────────

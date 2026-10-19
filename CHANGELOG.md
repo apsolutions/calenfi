@@ -6,7 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Desktop interface scaling from 100% to 200%, saved between launches.
+- Accept, decline and tentative responses to CalDAV invitations on servers
+  supporting automatic scheduling.
+
 ### Fixed
+- Check CalDAV invitation support before changing local state, show preflight
+  errors in the meeting card, and release later edits after an unsupported reply.
+- Verify CalDAV reply delivery separately from HTTP save success, retain failed
+  or pending replies in the queue, and retry temporary delivery failures without
+  duplicating confirmed replies.
+- Tentative and declined invitations appear only when "Show deleted/cancelled"
+  is enabled, using muted colors and strikethrough text.
+- The red current-time label disappears when the visible dates do not include
+  today.
 - RSVP updates in Google Calendar change only the current user's response,
   preserving other attendees and their newer responses. Google and Graph no
   longer acknowledge a response when the server event ID is missing.

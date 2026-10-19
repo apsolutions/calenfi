@@ -112,6 +112,47 @@ void main() {
     }
   });
 
+  testWidgets('время и линия скрываются вне сегодняшнего дня и возвращаются', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 9, 2, 10, 5);
+    final container = ProviderContainer(
+      overrides: [calendarClockSourceProvider.overrideWithValue(() => now)],
+    );
+    Future<void> showDays(List<DateTime> days) => tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Scaffold(
+            body: TimeGrid(days: days, events: const [], colors: const {}),
+          ),
+        ),
+      ),
+    );
+    try {
+      await showDays([DateTime(2026, 9, 2)]);
+      expect(find.text('10:05'), findsOneWidget);
+      for (final day in [DateTime(2026, 9, 1), DateTime(2026, 9, 3)]) {
+        await showDays([day]);
+        expect(find.text('10:05'), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (w) => w is ColoredBox && w.color == const Color(0xFFE53935),
+          ),
+          findsNothing,
+        );
+      }
+      await showDays([
+        DateTime(2026, 9, 1),
+        DateTime(2026, 9, 2),
+        DateTime(2026, 9, 3),
+      ]);
+      expect(find.text('10:05'), findsOneWidget);
+    } finally {
+      await _disposeClock(tester, container, unmountWidget: true);
+    }
+  });
+
   testWidgets('смена суток ведёт только фокус, который был на сегодня', (
     tester,
   ) async {
@@ -127,7 +168,11 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       expect(container.read(focusedDateProvider), DateTime(2026, 9, 3));
 
-      container.read(focusedDateProvider.notifier).state = DateTime(2026, 8, 15);
+      container.read(focusedDateProvider.notifier).state = DateTime(
+        2026,
+        8,
+        15,
+      );
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       now = DateTime(2026, 9, 4, 8, 30);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);

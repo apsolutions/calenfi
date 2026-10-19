@@ -50,6 +50,27 @@ void main() {
       expect(rows.map((e) => e.id).toSet(), {'ok', 'cx'});
     });
 
+    for (final response in ResponseStatus.values) {
+      for (final includeCancelled in [false, true]) {
+        test('$response visibility with includeCancelled=$includeCancelled',
+            () async {
+          await seed();
+          await (db.update(db.events)..where((e) => e.id.equals('ok')))
+              .write(EventsCompanion(myResponse: Value(response)));
+          final visible = includeCancelled ||
+              (response != ResponseStatus.tentative &&
+                  response != ResponseStatus.declined);
+          final expected = {if (visible) 'ok', if (includeCancelled) 'cx'};
+          final rows = await db.watchEventsInRange(from, to,
+              includeCancelled: includeCancelled).first;
+          final owned = await db.watchEventsWithOwnersInRange(from, to,
+              includeCancelled: includeCancelled).first;
+          expect(rows.map((e) => e.id).toSet(), expected);
+          expect(owned.map((e) => e.event.id).toSet(), expected);
+        });
+      }
+    }
+
     test('события вне диапазона не попадают', () async {
       await seed();
       final rows = await db
