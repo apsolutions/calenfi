@@ -6,14 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-#### Фичи
-- Ответы «Принять», «Отклонить» и «Возможно» на приглашения через CalDAV с серверной отправкой ответа.
+### Added
+- Accept, decline and tentative responses to CalDAV invitations on servers
+  supporting automatic scheduling.
 
-#### Фиксы
-- Встречи с ответами «Возможно» и «Отклонено» отображаются приглушёнными и зачёркнутыми.
-- Встречи с ответами «Возможно» и «Отклонено» видны только при включённом отображении удалённых.
-- Красная метка текущего времени скрывается при переходе на дни без сегодняшней даты.
 ### Fixed
+- Tentative and declined invitations appear only when "Show deleted/cancelled"
+  is enabled, using muted colors and strikethrough text.
+- The red current-time label disappears when the visible dates do not include
+  today.
 - RSVP updates in Google Calendar change only the current user's response,
   preserving other attendees and their newer responses. Google and Graph no
   longer acknowledge a response when the server event ID is missing.
