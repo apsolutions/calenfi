@@ -348,7 +348,7 @@ class GraphProvider implements CalendarProvider {
   Future<void> respondToInvite(
       Account acc, CalendarEvent e, ResponseStatus r) async {
     final id = e.source.providerEventId;
-    if (id == null) return;
+    if (id == null || id.isEmpty) throw StateError('Graph RSVP: нет id события');
     final action = switch (r) {
       ResponseStatus.accepted => 'accept',
       ResponseStatus.declined => 'decline',

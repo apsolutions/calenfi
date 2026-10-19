@@ -317,28 +317,21 @@ class GoogleProvider implements CalendarProvider {
   Future<void> respondToInvite(
       Account acc, CalendarEvent e, ResponseStatus r) async {
     final id = e.source.providerEventId;
-    if (id == null) return;
+    if (id == null || id.isEmpty) throw StateError('Google RSVP: нет id события');
     final status = switch (r) {
       ResponseStatus.accepted => 'accepted',
       ResponseStatus.declined => 'declined',
       ResponseStatus.tentative => 'tentative',
       _ => 'needsAction',
     };
-    // обновляем свой responseStatus в списке участников
+    // attendeesOmitted updates only this attendee. Replaying cached attendees
+    // can overwrite other people's newer responses or omit newly added guests.
     final attendees = [
-      for (final a in e.attendees)
-        {
-          'email': a.email,
-          if (a.email.toLowerCase() == acc.email.toLowerCase())
-            'responseStatus': status
-          else
-            'responseStatus': a.response.name,
-          if (a.email.toLowerCase() == acc.email.toLowerCase()) 'self': true,
-        }
+      {'email': acc.email, 'responseStatus': status},
     ];
     await _dio.patch(
       '$_base/calendars/${Uri.encodeComponent(e.calendarId.split('|').last)}/events/$id',
-      data: {'attendees': attendees},
+      data: {'attendees': attendees, 'attendeesOmitted': true},
       options: await _opts(contentType: Headers.jsonContentType),
     );
   }

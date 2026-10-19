@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- RSVP updates in Google Calendar change only the current user's response,
+  preserving other attendees and their newer responses. Google and Graph no
+  longer acknowledge a response when the server event ID is missing.
+- Exchange organizer reschedules and cancellations notify attendees; deleting
+  an invitee's local copy does not cancel the meeting for everyone. A server
+  refusal to delete is reported instead of silently acknowledged.
+- Cancelling a moved CalDAV occurrence excludes its original recurrence slot
+  and removes the moved exception. Cancelling this and following occurrences
+  removes later exceptions too. All-day exclusions retain their DATE type.
+
+### Tests
+- Acceptance, tentative (maybe), decline, rescheduling and cancellation across
+  provider transports and the durable queue, including overlapping refreshes,
+  consecutive responses, errors, retries and recurring/all-day cancellation
+  followed by a fresh pull. Unsupported CalDAV RSVP is checked explicitly.
+
 ## [0.3.25] — 2026-10-19
 
 ### Fixed

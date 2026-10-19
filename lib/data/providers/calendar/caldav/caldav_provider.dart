@@ -867,10 +867,33 @@ class CalDavProvider implements CalendarProvider {
       options: _requestOptions('GET'),
     );
     var ics = resp.data.toString();
-    final occ = e.startUtc.toUtc();
-    ics = scope == RecurrenceScope.thisOnly
-        ? _addExdate(ics, occ) // исключаем один экземпляр
-        : _setRruleUntil(ics, occ.subtract(const Duration(seconds: 1)));
+    final recurrenceMillis = int.tryParse(e.recurrenceId ?? '');
+    final occ = recurrenceMillis == null
+        ? e.startUtc.toUtc()
+        : DateTime.fromMillisecondsSinceEpoch(recurrenceMillis, isUtc: true);
+    final family = _rawVEvents(ics).where(
+      (component) => _canonicalUid(acc, cal, component.event.uid) == uid,
+    ).toList();
+    if (!family.any((c) => c.event.recurrenceIdUtc == null && c.event.rrule != null)) {
+      throw const FormatException('CalDAV delete: мастер серии не найден');
+    }
+    // Remove moved exceptions too, otherwise pull overlays them onto EXDATE
+    // and resurrects the cancelled meeting. Change only this UID's family.
+    for (final component in family.reversed) {
+      final rid = component.event.recurrenceIdUtc;
+      var replacement = component.match.group(0)!;
+      if (rid != null) {
+        final remove = scope == RecurrenceScope.thisOnly
+            ? rid.isAtSameMomentAs(occ)
+            : !rid.isBefore(occ);
+        if (remove) replacement = '';
+      } else if (component.event.rrule != null) {
+        replacement = scope == RecurrenceScope.thisOnly
+            ? _addExdate(replacement, occ, allDay: component.event.allDay)
+            : _setRruleUntil(replacement, occ.subtract(const Duration(seconds: 1)), allDay: component.event.allDay);
+      }
+      ics = ics.replaceRange(component.match.start, component.match.end, replacement);
+    }
     final etag = resp.headers.value('etag')?.trim() ?? e.source.etag?.trim();
     await _dio.requestUri(
       Uri.parse(url),
@@ -1017,16 +1040,17 @@ class CalDavProvider implements CalendarProvider {
   }
 
   /// Добавляет EXDATE сразу после строки RRULE (внутри мастер-VEVENT).
-  static String _addExdate(String ics, DateTime occ) {
-    final m = RegExp(r'^RRULE:.*$', multiLine: true).firstMatch(ics);
+  static String _addExdate(String ics, DateTime occ, {bool allDay = false}) {
+    final m = RegExp(r'^RRULE:[^\r\n]*', multiLine: true).firstMatch(ics);
     if (m == null) return ics;
-    return '${ics.substring(0, m.end)}\r\nEXDATE:${_icsStamp(occ)}${ics.substring(m.end)}';
+    final exclusion = allDay ? 'EXDATE;VALUE=DATE:${_icsStamp(occ).substring(0, 8)}' : 'EXDATE:${_icsStamp(occ)}';
+    return '${ics.substring(0, m.end)}\r\n$exclusion${ics.substring(m.end)}';
   }
 
   /// Ставит UNTIL в RRULE (убирая конфликтующие UNTIL/COUNT).
-  static String _setRruleUntil(String ics, DateTime until) {
-    final u = _icsStamp(until);
-    return ics.replaceAllMapped(RegExp(r'^RRULE:(.*)$', multiLine: true), (m) {
+  static String _setRruleUntil(String ics, DateTime until, {bool allDay = false}) {
+    final u = allDay ? _icsStamp(until).substring(0, 8) : _icsStamp(until);
+    return ics.replaceAllMapped(RegExp(r'^RRULE:([^\r\n]*)', multiLine: true), (m) {
       final parts =
           m
               .group(1)!

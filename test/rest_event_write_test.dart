@@ -1,3 +1,4 @@
+import 'package:calenfi/domain/models/attendee.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:calenfi/data/providers/calendar/google/google_provider.dart';
@@ -109,6 +110,163 @@ void main() {
           ),
         );
       });
+      CalendarEvent occurrence(CalendarEvent e) => CalendarEvent(
+        id: e.id,
+        calendarId: e.calendarId,
+        title: e.title,
+        startUtc: e.startUtc,
+        endUtc: e.endUtc,
+        source: e.source,
+        recurrenceId: 'master',
+        attendees: e.attendees,
+      );
+      for (final response in [
+        ResponseStatus.accepted,
+        ResponseStatus.tentative,
+        ResponseStatus.declined,
+      ]) {
+        for (final recurring in [false, true]) {
+          test(
+            '${response.name} ${recurring ? "occurrence" : "meeting"}: ${kind == ProviderType.caldav ? "unsupported RSVP is explicit" : "sends only my response"}',
+            () async {
+              final invitation = (recurring ? occurrence(event) : event)
+                  .copyWith(
+                    attendees: const [
+                      Attendee(email: 'ME@example.test'),
+                      Attendee(
+                        email: 'other@example.test',
+                        response: ResponseStatus.accepted,
+                        optional: true,
+                      ),
+                      Attendee(email: 'room@example.test', isResource: true),
+                    ],
+                  );
+              if (kind == ProviderType.caldav) {
+                await expectLater(
+                  provider.respondToInvite(account, invitation, response),
+                  throwsUnsupportedError,
+                );
+                expect(http.calls, isEmpty);
+                return;
+              }
+              await provider.respondToInvite(account, invitation, response);
+              final call = http.calls.single;
+              if (kind == ProviderType.google) {
+                expect(call.method, 'PATCH');
+                expect(call.path, endsWith('/events/server'));
+                expect(call.data['attendeesOmitted'], isTrue);
+                expect(call.data['attendees'], [
+                  {'email': account.email, 'responseStatus': response.name},
+                ]);
+              } else {
+                final action = {
+                  ResponseStatus.accepted: 'accept',
+                  ResponseStatus.tentative: 'tentativelyAccept',
+                  ResponseStatus.declined: 'decline',
+                }[response];
+                expect(call.method, 'POST');
+                expect(call.path, endsWith('/events/server/$action'));
+                expect(call.data, {'sendResponse': true});
+              }
+            },
+          );
+        }
+        if (kind != ProviderType.caldav) {
+          for (final status in [401, 403, 412, 429, 500]) {
+            test('${response.name} HTTP $status remains an error', () async {
+              http.status = status;
+              await expectLater(
+                provider.respondToInvite(account, event, response),
+                throwsA(isA<DioException>()),
+              );
+              expect(http.calls, hasLength(1));
+            });
+          }
+          test(
+            '${response.name} without server identity cannot silently succeed',
+            () async {
+              final local = event.copyWith(
+                source: const EventSource(accountId: 'a', calendarId: 'a|work'),
+              );
+              await expectLater(
+                provider.respondToInvite(account, local, response),
+                throwsStateError,
+              );
+              expect(http.calls, isEmpty);
+            },
+          );
+        }
+      }
+      if (kind == ProviderType.google) {
+        test('RSVP works when cached attendee list is omitted', () async {
+          await provider.respondToInvite(
+            account,
+            event,
+            ResponseStatus.tentative,
+          );
+          expect(http.calls.single.data, {
+            'attendees': [
+              {'email': account.email, 'responseStatus': 'tentative'},
+            ],
+            'attendeesOmitted': true,
+          });
+        });
+      }
+      if (kind != ProviderType.caldav) {
+        for (final scope in [RecurrenceScope.thisOnly, RecurrenceScope.all]) {
+          test(
+            'cancel $scope targets the requested occurrence or master',
+            () async {
+              await provider.deleteEvent(account, occurrence(event), scope);
+              expect(http.calls.single.method, 'DELETE');
+              expect(
+                http.calls.single.path,
+                endsWith(
+                  '/events/${scope == RecurrenceScope.all ? "master" : "server"}',
+                ),
+              );
+            },
+          );
+        }
+        for (final status in [401, 403, 412, 429, 500]) {
+          test('cancel HTTP $status does not pretend success', () async {
+            http.status = status;
+            await expectLater(
+              provider.deleteEvent(account, event, RecurrenceScope.all),
+              throwsA(isA<DioException>()),
+            );
+          });
+        }
+        for (final allDay in [false, true]) {
+          test(
+            'move ${allDay ? "all-day" : "timed"} meeting sends the new interval',
+            () async {
+              final moved = event.copyWith(
+                startUtc: DateTime.utc(2026, 10, 20, allDay ? 0 : 15),
+                endUtc: DateTime.utc(2026, 10, 21, allDay ? 0 : 16),
+                allDay: allDay,
+              );
+              final result = await provider.updateEvent(account, moved);
+              expect(result.startUtc, moved.startUtc);
+              expect(result.endUtc, moved.endUtc);
+              final body = http.calls.single.data as Map;
+              expect(
+                body['start'][kind == ProviderType.google && allDay
+                    ? 'date'
+                    : 'dateTime'],
+                startsWith('2026-10-20'),
+              );
+              expect(
+                body['end'][kind == ProviderType.google && allDay
+                    ? 'date'
+                    : 'dateTime'],
+                startsWith('2026-10-21'),
+              );
+              expect(http.calls.single.path, endsWith('/events/server'));
+            },
+          );
+        }
+      }
       for (final status in [400, 401, 403, 404, 409, 412, 429, 500]) {
         test('HTTP $status never acknowledges an update', () async {
           http.status = status;

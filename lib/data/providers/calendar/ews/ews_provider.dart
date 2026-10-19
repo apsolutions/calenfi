@@ -300,7 +300,7 @@ ${_attendeesXml(attendees)}
         set('item:Body', 't', '<t:Body BodyType="Text">${_esc(e.description!)}</t:Body>'),
     ].join();
     final body = '''${_envelopeOpen('UpdateItem')}
-<m:UpdateItem ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="SendToNone">
+<m:UpdateItem ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="${e.myResponse == ResponseStatus.organizer ? 'SendToAllAndSaveCopy' : 'SendToNone'}">
 <m:ItemChanges><t:ItemChange>
 <t:ItemId Id="${_attr(id)}"${e.source.etag == null ? '' : ' ChangeKey="${_attr(e.source.etag!)}"'}/>
 <t:Updates>$updates</t:Updates>
@@ -320,13 +320,13 @@ ${_attendeesXml(attendees)}
     // сервере нечего, считаем удалённым.
     if (id == null) return;
     final body = '''${_envelopeOpen('DeleteItem')}
-<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToNone">
+<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="${e.myResponse == ResponseStatus.organizer ? 'SendToAllAndSaveCopy' : 'SendToNone'}">
 <m:ItemIds><t:ItemId Id="${_attr(id)}"${e.source.etag == null ? '' : ' ChangeKey="${_attr(e.source.etag!)}"'}/></m:ItemIds>
 </m:DeleteItem>${_envelopeClose()}''';
-    // ErrorItemNotFound / ErrorCannotDeleteObject = событие уже удалено на
-    // сервере → цель достигнута, НЕ ошибка (иначе задание застревает навсегда).
+    // Only ItemNotFound proves it is already absent. CannotDeleteObject is
+    // a real refusal and must keep the deletion pending in the outbox.
     _checked(await _soap(_action('DeleteItem'), body),
-        okCodes: const {'ErrorItemNotFound', 'ErrorCannotDeleteObject'});
+        okCodes: const {'ErrorItemNotFound'});
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'package:xml/xml.dart';
 import 'package:calenfi/data/providers/calendar/ews/ews_provider.dart';
 import 'package:calenfi/data/providers/calendar/ews/ntlm_http.dart';
 import 'package:calenfi/domain/models/account.dart';
@@ -68,6 +69,121 @@ void main() {
       expect(http.bodies.single, isNot(contains('<m:CreateItem')));
     },
   );
+  for (final response in [
+    ResponseStatus.accepted,
+    ResponseStatus.tentative,
+    ResponseStatus.declined,
+  ]) {
+    test('${response.name} sends a response to the original meeting', () async {
+      await provider.respondToInvite(account, event, response);
+      final verb = {
+        ResponseStatus.accepted: 'AcceptItem',
+        ResponseStatus.tentative: 'TentativelyAcceptItem',
+        ResponseStatus.declined: 'DeclineItem',
+      }[response];
+      expect(http.bodies.single, contains('<t:$verb>'));
+      expect(
+        http.bodies.single,
+        contains('<t:ReferenceItemId Id="server" ChangeKey="v1"'),
+      );
+      expect(
+        http.bodies.single,
+        contains('MessageDisposition="SendAndSaveCopy"'),
+      );
+      expect(http.bodies.single, isNot(contains('<t:CalendarItem>')));
+    });
+    for (final code in [
+      'ErrorAccessDenied',
+      'ErrorIrresolvableConflict',
+      'ErrorItemNotFound',
+      'ErrorServerBusy',
+    ]) {
+      test('${response.name} SOAP $code is not acknowledged', () async {
+        http.code = code;
+        await expectLater(
+          provider.respondToInvite(account, event, response),
+          throwsA(anything),
+        );
+      });
+    }
+    test('${response.name} missing server identity is an error', () async {
+      await expectLater(
+        provider.respondToInvite(
+          account,
+          event.copyWith(
+            source: const EventSource(accountId: 'a', calendarId: 'a|calendar'),
+          ),
+          response,
+        ),
+        throwsStateError,
+      );
+      expect(http.bodies, isEmpty);
+    });
+  }
+  test(
+    'rescheduling an organized meeting sends updates to attendees',
+    () async {
+      final moved = event.copyWith(
+        startUtc: DateTime.utc(2026, 10, 19, 12),
+        endUtc: DateTime.utc(2026, 10, 19, 13),
+      );
+      await provider.updateEvent(account, moved);
+      expect(
+        DateTime.parse(
+          XmlDocument.parse(
+            http.bodies.single,
+          ).findAllElements('t:Start').single.innerText,
+        ),
+        moved.startUtc,
+      );
+      expect(
+        http.bodies.single,
+        contains(
+          'SendMeetingInvitationsOrCancellations="SendToAllAndSaveCopy"',
+        ),
+      );
+    },
+  );
+  test('organizer cancellation notifies attendees', () async {
+    await provider.deleteEvent(account, event, RecurrenceScope.all);
+    expect(http.bodies.single, contains('<m:DeleteItem'));
+    expect(
+      http.bodies.single,
+      contains('SendMeetingCancellations="SendToAllAndSaveCopy"'),
+    );
+  });
+  test(
+    'deleting my invited copy never cancels the meeting for everyone',
+    () async {
+      await provider.deleteEvent(
+        account,
+        event.copyWith(myResponse: ResponseStatus.accepted),
+        RecurrenceScope.thisOnly,
+      );
+      expect(
+        http.bodies.single,
+        contains('SendMeetingCancellations="SendToNone"'),
+      );
+    },
+  );
+  for (final code in [
+    'ErrorAccessDenied',
+    'ErrorCannotDeleteObject',
+    'ErrorIrresolvableConflict',
+    'ErrorServerBusy',
+  ]) {
+    test('cancel SOAP $code remains a failure', () async {
+      http.code = code;
+      await expectLater(
+        provider.deleteEvent(account, event, RecurrenceScope.all),
+        throwsA(anything),
+      );
+    });
+  }
+  test('already absent meeting cancellation is idempotent', () async {
+    http.code = 'ErrorItemNotFound';
+    await provider.deleteEvent(account, event, RecurrenceScope.all);
+  });
   for (final code in [
     'ErrorAccessDenied',
     'ErrorChangeKeyRequired',

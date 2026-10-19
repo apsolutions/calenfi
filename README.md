@@ -209,6 +209,23 @@ has no secret. User passwords, refresh tokens and Zoom keys are never embedded.
 Anything embedded can still be extracted from the binary, so GitHub releases are
 built without these variables.
 
+## Tests
+
+Run the full suite with `flutter test --concurrency=1` and static checks with
+`flutter analyze`. The invitation and event-action regression tests are:
+
+```bash
+flutter test --concurrency=1 test/rest_event_write_test.dart test/ews_event_write_test.dart test/caldav_recurrence_update_test.dart test/event_edit_concurrency_test.dart
+```
+
+They cover acceptance, tentative (maybe), decline, rescheduling and cancellation;
+provider HTTP/SOAP failures; queued actions during refresh/upload; and cancellation
+of moved recurring or all-day CalDAV occurrences followed by another pull.
+Transports are simulated, so these tests send no real invitations or cancellations.
+CalDAV RSVP is currently unsupported and is tested for an explicit error.
+Exchange currently edits individual occurrences; changing an entire recurring
+series is not supported by its adapter.
+
 ## Project layout
 
 ```

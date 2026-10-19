@@ -1,3 +1,4 @@
+import 'package:calenfi/domain/usecases/event_actions.dart';
 import 'dart:async';
 
 import 'package:calenfi/data/local/db/database.dart';
@@ -44,6 +45,7 @@ class _Server extends MockProvider {
   final writes = <CalendarEvent>[];
   final scopes = <RecurrenceScope>[];
   final originals = <DateTime?>[];
+  final responses = <ResponseStatus>[];
   int creates = 0;
   int pulls = 0;
   @override
@@ -110,7 +112,25 @@ class _Server extends MockProvider {
     RecurrenceScope s,
   ) async {
     writes.add(e);
+    final gate = writeGate;
+    writeGate = null;
+    if (gate != null) await gate.wait();
+    if (failWrite) throw StateError('server rejected cancellation');
     remote = null;
+  }
+
+  @override
+  Future<void> respondToInvite(
+    Account a,
+    CalendarEvent e,
+    ResponseStatus r,
+  ) async {
+    responses.add(r);
+    final gate = writeGate;
+    writeGate = null;
+    if (gate != null) await gate.wait();
+    if (failWrite) throw StateError('server rejected response');
+    remote = e.copyWith(myResponse: r);
   }
 }
 
@@ -185,6 +205,152 @@ void main() {
         sync.dispose();
         await db.close();
       });
+
+      for (final response in [
+        ResponseStatus.accepted,
+        ResponseStatus.tentative,
+        ResponseStatus.declined,
+      ]) {
+        test(
+          '${response.name} during refresh survives stale pull and reaches server',
+          () async {
+            final g = gate();
+            server.pullGate = g;
+            final refresh = sync.syncAccount(account);
+            await g.entered.future;
+            await EventActions(events, sync).rsvp(initial, response);
+            expect((await events.getById(initial.id))!.myResponse, response);
+            final push = sync.syncAccountById(account.id);
+            await Future<void>.delayed(Duration.zero);
+            g.open();
+            await refresh;
+            await push;
+            await sync.whenIdle();
+            expect(server.responses, [response]);
+            expect(server.remote!.myResponse, response);
+            expect((await events.getById(initial.id))!.myResponse, response);
+            expect(await events.pendingOutbox(), isEmpty);
+          },
+        );
+        test(
+          'failed ${response.name} stays queued and retries without changing meeting identity',
+          () async {
+            server.failWrite = true;
+            await events.saveAndEnqueue(
+              initial.copyWith(myResponse: response),
+              'rsvp',
+              {'resp': response.index},
+            );
+            expect((await sync.syncAccount(account)).ok, isFalse);
+            expect(
+              (await accounts.allAccounts()).single.status,
+              AccountStatus.syncError,
+            );
+            expect(await events.pendingOutbox(), hasLength(1));
+            expect((await events.getById(initial.id))!.myResponse, response);
+            server.failWrite = false;
+            await sync.syncAccount(account);
+            expect(server.remote!.id, initial.id);
+            expect(server.remote!.myResponse, response);
+            expect(await events.pendingOutbox(), isEmpty);
+            expect(server.creates, 0);
+          },
+        );
+      }
+      test(
+        'accept then maybe then decline while first reply uploads preserves order',
+        () async {
+          final g = gate();
+          server.writeGate = g;
+          final actions = EventActions(events, sync);
+          await actions.rsvp(initial, ResponseStatus.accepted);
+          await g.entered.future;
+          await actions.rsvp(initial, ResponseStatus.tentative);
+          await actions.rsvp(initial, ResponseStatus.declined);
+          final joined = sync.syncAccountById(account.id);
+          await Future<void>.delayed(Duration.zero);
+          g.open();
+          await joined;
+          await sync.whenIdle();
+          expect(server.responses, [
+            ResponseStatus.accepted,
+            ResponseStatus.tentative,
+            ResponseStatus.declined,
+          ]);
+          expect(
+            (await events.getById(initial.id))!.myResponse,
+            ResponseStatus.declined,
+          );
+          expect(await events.pendingOutbox(), isEmpty);
+        },
+      );
+      test('cancel during refresh is not resurrected by stale pull', () async {
+        final g = gate();
+        server.pullGate = g;
+        final refresh = sync.syncAccount(account);
+        await g.entered.future;
+        await EventActions(
+          events,
+          sync,
+        ).delete(initial, scope: RecurrenceScope.thisOnly);
+        expect((await events.getById(initial.id))!.deletedRemotely, isTrue);
+        final joined = sync.syncAccountById(account.id);
+        await Future<void>.delayed(Duration.zero);
+        g.open();
+        await refresh;
+        await joined;
+        await sync.whenIdle();
+        expect(server.remote, isNull);
+        expect(await events.getById(initial.id), isNull);
+        expect(await events.pendingOutbox(), isEmpty);
+      });
+      test(
+        'cancel while a move uploads retains deletion until it is sent',
+        () async {
+          final g = gate();
+          server.writeGate = g;
+          final moved = initial.copyWith(
+            startUtc: initial.startUtc.add(const Duration(hours: 2)),
+            endUtc: initial.endUtc.add(const Duration(hours: 2)),
+          );
+          final actions = EventActions(events, sync);
+          await actions.update(moved, original: initial);
+          await g.entered.future;
+          await actions.delete(moved);
+          final joined = sync.syncAccountById(account.id);
+          await Future<void>.delayed(Duration.zero);
+          g.open();
+          await joined;
+          await sync.whenIdle();
+          expect(server.writes, hasLength(2));
+          expect(server.remote, isNull);
+          expect(await events.getById(initial.id), isNull);
+          expect(await events.pendingOutbox(), isEmpty);
+        },
+      );
+      test(
+        'failed cancellation remains pending and visible until successful retry',
+        () async {
+          server.failWrite = true;
+          await events.saveAndEnqueue(
+            initial.copyWith(deletedRemotely: true),
+            'delete',
+            {'scope': RecurrenceScope.all.index},
+          );
+          expect((await sync.syncAccount(account)).ok, isFalse);
+          expect(
+            (await accounts.allAccounts()).single.status,
+            AccountStatus.syncError,
+          );
+          expect((await events.getById(initial.id))!.deletedRemotely, isTrue);
+          expect(await events.pendingOutbox(), hasLength(1));
+          server.failWrite = false;
+          await sync.syncAccount(account);
+          expect(server.remote, isNull);
+          expect(await events.getById(initial.id), isNull);
+          expect(await events.pendingOutbox(), isEmpty);
+        },
+      );
 
       test(
         'edit during pull survives stale response and is sent by follow-up',
