@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/merged_event.dart';
+import '../../domain/models/enums.dart';
 import '../../l10n/app_localizations.dart';
 import '../../app/window_class.dart';
 import 'calendar_state.dart';
@@ -163,14 +164,16 @@ class _MonthCell extends ConsumerWidget {
   Widget _chip(BuildContext context, MergedEvent e) {
     final color = Color(
         e.primary.colorOverride ?? colors[e.primary.calendarId] ?? 0xFF888888);
-    final cancelled = e.primary.isCancelled;
+    final cancelled = e.primary.isCancelled ||
+        e.primary.myResponse == ResponseStatus.tentative ||
+        e.primary.myResponse == ResponseStatus.declined;
     return GestureDetector(
       onTap: () => showEventDetails(context, e),
       child: Container(
         margin: const EdgeInsets.only(bottom: 1),
         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.28),
+          color: color.withValues(alpha: cancelled ? 0.10 : 0.28),
           borderRadius: BorderRadius.circular(3),
         ),
         child: Text(
@@ -179,6 +182,7 @@ class _MonthCell extends ConsumerWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
               fontSize: 9,
+              color: cancelled ? Theme.of(context).disabledColor : null,
               decoration: cancelled ? TextDecoration.lineThrough : null),
         ),
       ),

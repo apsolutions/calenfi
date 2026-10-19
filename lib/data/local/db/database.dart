@@ -197,7 +197,11 @@ class AppDatabase extends _$AppDatabase {
     if (!includeCancelled) {
       query
         ..where(events.deletedRemotely.equals(false))
-        ..where(events.status.isNotIn([EventStatus.cancelled.index]));
+        ..where(events.status.isNotIn([EventStatus.cancelled.index]))
+        ..where(events.myResponse.isNotIn([
+          ResponseStatus.tentative.index,
+          ResponseStatus.declined.index,
+        ]));
     }
 
     return query.watch().map(
@@ -223,7 +227,11 @@ class AppDatabase extends _$AppDatabase {
     if (!includeCancelled) {
       query
         ..where(events.deletedRemotely.equals(false))
-        ..where(events.status.isNotIn([EventStatus.cancelled.index]));
+        ..where(events.status.isNotIn([EventStatus.cancelled.index]))
+        ..where(events.myResponse.isNotIn([
+          ResponseStatus.tentative.index,
+          ResponseStatus.declined.index,
+        ]));
     }
 
     return query.watch().map(

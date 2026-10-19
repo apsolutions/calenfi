@@ -26,7 +26,9 @@ class EventBlock extends ConsumerWidget {
     final noteKeys = ref.watch(noteKeysProvider).value ?? const <String>{};
     final hasNote = NotesRepository.hasNote(event, noteKeys);
     final pending = e.myResponse == ResponseStatus.needsAction;
-    final cancelled = e.isCancelled;
+    final cancelled = e.isCancelled ||
+        e.myResponse == ResponseStatus.tentative ||
+        e.myResponse == ResponseStatus.declined;
     final start = e.startUtc.toLocal();
     final timeLabel =
         '${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}';
