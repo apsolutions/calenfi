@@ -17,6 +17,10 @@ on-device, editable offline.
   (CalDAV) and Exchange (EWS) side by side.
 - **Local-first** — everything is cached in a local SQLite (Drift) database; the
   UI is instant and works offline, changes sync in the background.
+- **Reliable editing** — queued edits retain their order and contents during
+  refreshes and uploads; failed saves remain pending and show an account error.
+- **Predictive refresh** — learns weekday/time patterns from local opening
+  history and starts syncing ahead of likely openings.
 - **Smart deduplication** — identical events shared across calendars collapse
   into one, with a toggle to keep every copy separate.
 - **Move & resize** — drag to reschedule, drag edges to change duration on
@@ -29,6 +33,47 @@ on-device, editable offline.
   mini month calendar you can page through right in the widget.
 - **Agent CLI** — a JSON interface (`tools/calenfi`) to read and edit your
   schedule from scripts or LLM agents (see [docs/AGENT_API.md](docs/AGENT_API.md)).
+
+## Editing and synchronization
+
+Changes appear locally immediately. A queued change is acknowledged only after
+its provider accepts it; an older upload or incoming refresh cannot overwrite a
+newer local edit. Each queued edit keeps its recurrence scope. Server-assigned ID
+changes preserve pending edits, including edits still waiting for their timer.
+Google and Microsoft updates use ETags to detect concurrent server changes.
+
+If an upload fails, the account shows an error immediately and the change stays
+in the local queue. Automatic retries are limited; a manual sync resets the
+retry count. Android foreground and background syncs share account ownership,
+so opening the app during a background upload does not start a second upload
+for that account. A local change alone does not mean it has reached the server.
+
+### Predictive refresh and local history
+
+Calenfi records opening timestamps, local weekday/time, whether calendars were
+fresh at opening, and sync durations in its local SQLite database. This usage
+history is not uploaded. The model schedules refreshes before likely openings
+and aims for data no older than two minutes, measured from the start of the last
+successful sync. It allows two minutes for sync initially, then uses measured
+95th-percentile durations for the slowest account, with a 30-second minimum.
+
+Older habits lose weight only when newer days of actual use appear:
+
+- Seven newer observed days halve an old day's weight; a long pause changes
+  nothing by itself.
+- Openings within each day share a fixed total weight, so repeated openings in
+  one unusual day cannot overwhelm an established pattern.
+- The last 56 observed days are retained, rather than the last 56 calendar days.
+  Day boundaries for weighting are UTC; predicted windows use the local
+  weekday/time recorded at opening.
+
+The model targets 95% coverage of weighted observations. This is not a measured
+95% guarantee for future openings, particularly with only one observation.
+Actual opening freshness is recorded separately. The configured refresh interval
+still applies outside predicted windows; manual-only accounts stay manual.
+Android uses WorkManager for background wakeups, which the OS may delay.
+Desktop predictions require the app to remain running; network availability and
+system sleep also affect freshness.
 
 ## Downloads
 
