@@ -20,8 +20,10 @@ class EwsProvider implements CalendarProvider {
     required this.password,
     this.user,
     this.ewsUrlOverride,
+    this.http,
   });
 
+  final NtlmHttp? http;
   final Account account;
   final String password;
   final String? user; // если домен-логин отличается от email
@@ -507,7 +509,7 @@ ${_attendeesXml(attendees)}
       if (i > 0) hmap[h.substring(0, i).trim()] = h.substring(i + 1).trim();
     }
     final (u, dom) = _ntlmCreds();
-    final resp = await NtlmHttp(user: u, password: password, domain: dom)
+    final resp = await (http ?? NtlmHttp(user: u, password: password, domain: dom))
         .post(Uri.parse(url), body: body, headers: hmap);
     if (resp.statusCode >= 400) throw 'EWS HTTP ${resp.statusCode}';
     return resp.body;

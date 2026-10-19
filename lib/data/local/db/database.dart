@@ -149,6 +149,14 @@ class AppDatabase extends _$AppDatabase {
         beforeOpen: (_) async {
           await customStatement(kEventNotesDdl);
           await customStatement(kMeetingNotesDdl);
+          await customStatement('CREATE TABLE IF NOT EXISTS event_id_aliases ('
+              'old_id TEXT PRIMARY KEY, event_id TEXT NOT NULL)');
+          await customStatement('CREATE TABLE IF NOT EXISTS sync_openings ('
+              'opened INTEGER PRIMARY KEY, week_minute INTEGER NOT NULL, fresh INTEGER NOT NULL)');
+          await customStatement('CREATE TABLE IF NOT EXISTS sync_runs ('
+              'id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, '
+              'started INTEGER NOT NULL, finished INTEGER NOT NULL, ok INTEGER NOT NULL)');
+          await customStatement('CREATE INDEX IF NOT EXISTS sync_runs_finished ON sync_runs(finished)');
         },
         onUpgrade: (m, from, to) async {
           if (from < 2) {

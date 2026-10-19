@@ -1,3 +1,5 @@
+import 'package:calenfi/data/repositories/sync_usage_repository.dart';
+import 'package:calenfi/sync/usage_sync_plan.dart';
 // Жалоба: «календари опять отвалились». После входа аккаунт через несколько
 // минут снова показывал «нужно переподключение» и держал это до перезапуска.
 // Переподключение пересоздаёт движок синхронизации, а фоновый синк держал
@@ -32,39 +34,58 @@ class _CountingEngine implements SyncEngine {
 class _OneOverdueAccount implements AccountRepository {
   @override
   Future<List<Account>> allAccounts() async => const [
-        Account(
-          id: 'acc-1',
-          provider: ProviderType.graph,
-          displayName: 'Work',
-          email: 'user@example.test',
-        ),
-      ];
+    Account(
+      id: 'acc-1',
+      provider: ProviderType.graph,
+      displayName: 'Work',
+      email: 'user@example.test',
+    ),
+  ];
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
 }
 
+class _Usage implements SyncUsageRepository {
+  @override
+  Future<void> recordOpening(DateTime local, List<Account> accounts) async {}
+  @override
+  Future<UsageSyncPlan> plan(DateTime now) async =>
+      UsageSyncPlan.learn([], [], now);
+  @override
+  Future<Map<String, SyncTiming>> latestSuccessful() async => {};
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
 void main() {
   setUp(() => DiagLog.instance.echo = false);
 
-  testWidgets('фоновый синк после переподключения ходит через новый движок',
-      (tester) async {
+  testWidgets('фоновый синк после переподключения ходит через новый движок', (
+    tester,
+  ) async {
     final engines = <_CountingEngine>[];
     final generation = StateProvider<int>((_) => 0);
-    final container = ProviderContainer(overrides: [
-      accountRepositoryProvider.overrideWithValue(_OneOverdueAccount()),
-      // Как настоящий провайдер: движок пересоздаётся, когда меняется то, от
-      // чего он зависит (в приложении это реестр провайдеров календарей).
-      syncEngineProvider.overrideWith((ref) {
-        ref.watch(generation);
-        final engine = _CountingEngine();
-        engines.add(engine);
-        return engine;
-      }),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        syncUsageRepositoryProvider.overrideWithValue(_Usage()),
+        accountRepositoryProvider.overrideWithValue(_OneOverdueAccount()),
+        // Как настоящий провайдер: движок пересоздаётся, когда меняется то, от
+        // чего он зависит (в приложении это реестр провайдеров календарей).
+        syncEngineProvider.overrideWith((ref) {
+          ref.watch(generation);
+          final engine = _CountingEngine();
+          engines.add(engine);
+          return engine;
+        }),
+      ],
+    );
 
     container.read(periodicSyncProvider);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    engines.single.synced.clear();
     await tester.pump(const Duration(minutes: 1));
     await tester.pump();
     expect(engines, hasLength(1));
@@ -76,10 +97,14 @@ void main() {
     await tester.pump(const Duration(minutes: 1));
     await tester.pump();
     expect(engines, hasLength(2));
-    expect(engines[1].synced, ['acc-1'],
-        reason: 'фоновый синк обязан взять текущий движок');
-    expect(engines[0].synced, ['acc-1'],
-        reason: 'прежний движок со старыми учётными данными больше не зовём');
+    expect(engines[1].synced, [
+      'acc-1',
+    ], reason: 'фоновый синк обязан взять текущий движок');
+    expect(
+      engines[0].synced,
+      ['acc-1'],
+      reason: 'прежний движок со старыми учётными данными больше не зовём',
+    );
 
     // Минутный таймер фонового синка живёт в провайдере: снимаем его до
     // проверки «не осталось ли таймеров» в конце теста.

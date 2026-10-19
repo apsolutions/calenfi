@@ -121,7 +121,8 @@ class GoogleToken {
         'refresh_token': refreshToken,
         'grant_type': 'refresh_token',
       },
-      options: Options(contentType: Headers.formUrlEncodedContentType),
+      options: Options(contentType: Headers.formUrlEncodedContentType,
+          validateStatus: (s) => s != null && s >= 200 && s < 500),
     );
     final data = resp.data as Map<String, dynamic>;
     final at = data['access_token'];

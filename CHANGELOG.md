@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.25] — 2026-10-19
+
+### Fixed
+- Calendar edits survive overlapping refreshes, consecutive uploads and server
+  ID changes. Each queued operation retains its own content and recurrence
+  scope; acknowledging an older upload preserves newer local edits.
+- Google Calendar and Microsoft Graph reject failed HTTP writes instead of
+  silently treating them as saved. Updates use ETags and can clear locations,
+  descriptions and attendees. The first failed edit is visible immediately.
+- Synchronization timeouts retain ownership until the underlying requests
+  finish. Android foreground and background engines serialize work for each
+  account, preventing overlapping uploads.
+
+### Added
+- Device-local SQLite opening history and predictive sync windows based on
+  weekday/time, with measured sync duration and a two-minute freshness target.
+  Actual freshness is tracked separately from the model's 95% coverage target.
+- Usage patterns fade only as newer days of use are observed: seven observed
+  days halve an old day's weight; inactivity does not erase habits. Daily
+  weight is normalized and the last 56 observed days are retained.
+- Regression tests for Google, Graph, CalDAV and EWS writes, concurrent edits,
+  background ownership and predictive scheduling.
+
 ## [0.3.24] — 2026-10-06
 
 ### Fixed

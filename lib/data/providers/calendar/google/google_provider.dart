@@ -17,7 +17,7 @@ class GoogleProvider implements CalendarProvider {
   GoogleProvider({required this.account, required this.token, Dio? dio})
       : _dio = dio ?? Dio() {
     _dio.options
-      ..validateStatus = ((s) => s != null && s < 500)
+      ..validateStatus = ((s) => s != null && s >= 200 && s < 300)
       ..connectTimeout = const Duration(seconds: 20)
       ..sendTimeout = const Duration(seconds: 30)
       ..receiveTimeout = const Duration(seconds: 30);
@@ -33,9 +33,9 @@ class GoogleProvider implements CalendarProvider {
   @override
   ProviderCapabilities get caps => ProviderCapabilities.google;
 
-  Future<Options> _opts({String? contentType}) async {
+  Future<Options> _opts({String? contentType, String? etag}) async {
     final at = await token.accessTokenValid(_dio);
-    return Options(headers: {'Authorization': 'Bearer $at'}, contentType: contentType);
+    return Options(headers: {'Authorization': 'Bearer $at', 'If-Match': ?etag}, contentType: contentType);
   }
 
   String _calId(Calendar cal) => cal.id.split('|').last;
@@ -155,12 +155,12 @@ class GoogleProvider implements CalendarProvider {
         originalStartUtc: originalStartUtc,
       );
     }
-    await _dio.patch(
+    final response = await _dio.patch(
       '$_base/calendars/$calId/events/$instanceId',
       data: _toGoogle(e),
-      options: await _opts(contentType: Headers.jsonContentType),
+      options: await _opts(contentType: Headers.jsonContentType, etag: e.source.etag),
     );
-    return e;
+    return e.copyWith(source: e.source.copyWith(etag: response.data['etag'] as String?));
   }
 
   /// Переносит правку экземпляра на мастер серии: время сдвигаем на ту же
@@ -214,7 +214,7 @@ class GoogleProvider implements CalendarProvider {
     await _dio.patch(
       '$_base/calendars/$calId/events/$masterId',
       data: payload,
-      options: await _opts(contentType: Headers.jsonContentType),
+      options: await _opts(contentType: Headers.jsonContentType, etag: master['etag'] as String?),
     );
     return e;
   }
@@ -410,7 +410,7 @@ class GoogleProvider implements CalendarProvider {
       // Кладём его в recurrenceId: событие распознаётся как повторяющееся.
       recurrenceId: e['recurringEventId'] as String?,
       source: EventSource(
-          accountId: acc.id, calendarId: cal.id, providerEventId: e['id'] as String?),
+          accountId: acc.id, calendarId: cal.id, providerEventId: e['id'] as String?, etag: e['etag'] as String?),
     );
   }
 
@@ -434,10 +434,9 @@ class GoogleProvider implements CalendarProvider {
       // день недели, что и локально.
       if (e.recurrenceRule != null && e.recurrenceId == null)
         'recurrence': ['RRULE:${e.recurrenceRule}'],
-      if (e.location != null) 'location': e.location,
-      'description': ? description,
-      if (e.attendees.isNotEmpty)
-        'attendees': [
+      'location': e.location ?? '',
+      'description': description ?? '',
+      'attendees': [
           for (final a in e.attendees)
             {'email': a.email, if (a.isResource) 'resource': true}
         ],

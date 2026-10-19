@@ -40,6 +40,9 @@ class SyncEngine {
     this.softLimit = const Duration(seconds: 150),
     this.hardLimit = const Duration(minutes: 15),
     this.networkExpected,
+    this.onPassFinished,
+    this.acquireAccount,
+    this.releaseAccount,
   }) : _provisioner = provisioner ?? ConferenceProvisioner();
 
   /// Можно ли сейчас рассчитывать на сеть. null — всегда можно.
@@ -49,6 +52,18 @@ class SyncEngine {
   /// Такой отказ не должен превращаться в статус «нет сети»: человек открывал
   /// приложение и видел тревожный баннер, пока не пройдёт новый синк.
   final bool Function()? networkExpected;
+
+  final Future<void> Function(
+    String accountId,
+    DateTime started,
+    DateTime finished,
+    bool ok,
+  )?
+  onPassFinished;
+
+  /// Optional process-wide ownership shared by foreground/background engines.
+  final Future<void> Function(String accountId)? acquireAccount;
+  final Future<void> Function(String accountId)? releaseAccount;
 
   final ProviderRegistry registry;
   final AccountRepository accounts;
@@ -92,6 +107,9 @@ class SyncEngine {
   /// Синхронизировать все аккаунты. Возвращает отчёты (для UI-статусов).
   /// Идемпотентно: если синк уже идёт — возвращаем его же будущее.
   Future<List<AccountSyncReport>> syncAll() {
+    // A manual apply-all may have enqueued edits after an active pass took
+    // its snapshot. Coalesce requests into one subsequent pass per account.
+    _rerunRequested.addAll(_accountInFlight.keys);
     return _inFlight ??= _runSyncAll().whenComplete(() => _inFlight = null);
   }
 
@@ -110,6 +128,7 @@ class SyncEngine {
     final all = await accounts.allAccounts();
     for (final acc in all) {
       if (acc.id == accountId) {
+        if (_accountInFlight.containsKey(acc.id)) _rerunRequested.add(acc.id);
         await syncAccount(acc);
         return;
       }
@@ -120,14 +139,15 @@ class SyncEngine {
   /// проход не закончился по-настоящему, новый для того же аккаунта не
   /// запускается: ручной refresh и минутный тик присоединяются к идущему.
   final Map<String, Future<AccountSyncReport>> _accountInFlight = {};
+  final Set<String> _rerunRequested = {};
 
   /// Сколько вызывающий ждёт проход. Дольше — получает отчёт «ещё идёт», а
   /// проход продолжается в фоне (иначе один медленный аккаунт держал бы
   /// `syncAll` и остальные аккаунты).
   final Duration softLimit;
 
-  /// После этого срока проход считается зависшим: аккаунт получает статус
-  /// ошибки, и следующий вызов запустит новый проход.
+  /// После этого срока аккаунт получает статус ошибки. Владение проходом
+  /// сохраняется до фактического завершения сетевых запросов.
   final Duration hardLimit;
 
   /// Синхронизация аккаунта с учётом «идёт синхронизация» (для индикатора в
@@ -143,9 +163,10 @@ class SyncEngine {
       softLimit,
       onTimeout: () {
         DiagLog.instance.add(
-            'sync',
-            '${acc.id}: идёт дольше ${softLimit.inSeconds} с, '
-                'продолжается в фоне');
+          'sync',
+          '${acc.id}: идёт дольше ${softLimit.inSeconds} с, '
+              'продолжается в фоне',
+        );
         return AccountSyncReport(acc.id, error: 'still running');
       },
     );
@@ -161,27 +182,57 @@ class SyncEngine {
 
   Future<AccountSyncReport> _runPass(Account acc) async {
     _setActive(1);
+    var acquired = false;
     try {
-      return await _syncAccount(acc).timeout(
-        hardLimit,
-        onTimeout: () async {
-          DiagLog.instance.add(
-              'sync',
-              '${acc.id}: проход не закончился за ${hardLimit.inMinutes} мин, '
-                  'считаю зависшим');
-          await accounts.recordSyncFailure(
+      await acquireAccount?.call(acc.id);
+      acquired = true;
+      AccountSyncReport report;
+      do {
+        _rerunRequested.remove(acc.id);
+        final passStarted = DateTime.now().toUtc();
+        final work = _syncAccount(acc);
+        report = await work.timeout(
+          hardLimit,
+          onTimeout: () async {
+            await accounts.recordSyncFailure(
+              acc.id,
+              AccountStatus.syncError,
+              'Синхронизация превысила лимит времени',
+            );
+            // Future.timeout does NOT cancel network or DB work. Keep ownership
+            // until it actually settles, or a retry can duplicate writes.
+            return await work;
+          },
+        );
+        try {
+          await onPassFinished?.call(
             acc.id,
-            AccountStatus.syncError,
-            'Синхронизация превысила лимит времени',
+            passStarted,
+            DateTime.now().toUtc(),
+            report.ok,
           );
-          return AccountSyncReport(acc.id, error: 'timeout');
-        },
+        } catch (e) {
+          DiagLog.instance.add(
+            'sync',
+            'Не удалось сохранить длительность синка: $e',
+          );
+        }
+      } while (_rerunRequested.contains(acc.id));
+      return report;
+    } catch (e) {
+      await accounts.recordSyncFailure(
+        acc.id,
+        AccountStatus.syncError,
+        'Не удалось завершить синхронизацию: $e',
       );
+      return AccountSyncReport(acc.id, error: e);
     } finally {
-      _setActive(-1);
-      // Отдельной строкой, а не `=> _accountInFlight.remove(...)` в
-      // whenComplete: remove() вернул бы саму эту Future, и она ждала бы себя.
-      final _ = _accountInFlight.remove(acc.id);
+      try {
+        if (acquired) await releaseAccount?.call(acc.id);
+      } finally {
+        _setActive(-1);
+        _accountInFlight.remove(acc.id);
+      }
     }
   }
 
@@ -195,9 +246,10 @@ class SyncEngine {
     // пользователь видел реальный статус, а не устаревшие данные (FR-A6).
     if (provider is EmptyProvider) {
       DiagLog.instance.add(
-          'sync',
-          '${acc.id} (${acc.provider.name}): в хранилище секретов нет учётных '
-              'данных для ${acc.email}, нужен вход');
+        'sync',
+        '${acc.id} (${acc.provider.name}): в хранилище секретов нет учётных '
+            'данных для ${acc.email}, нужен вход',
+      );
       await accounts.recordSyncFailure(
         acc.id,
         AccountStatus.needsReconnect,
@@ -250,8 +302,10 @@ class SyncEngine {
         await events.cleanupOrphanSeriesMasters();
 
         if (pushError != null) {
-          DiagLog.instance
-              .add('sync', '${acc.id}: правка не отправлена: $pushError');
+          DiagLog.instance.add(
+            'sync',
+            '${acc.id}: правка не отправлена: $pushError',
+          );
           await accounts.recordSyncFailure(
             acc.id,
             AccountStatus.syncError,
@@ -261,17 +315,20 @@ class SyncEngine {
         }
         await accounts.recordSyncSuccess(acc.id, DateTime.now().toUtc());
         DiagLog.instance.add(
-            'sync',
-            '${acc.id}: готово за '
-                '${DateTime.now().difference(started).inMilliseconds} мс, '
-                'календарей ${cals.length}'
-                '${attempt > 1 ? ', с попытки $attempt' : ''}');
+          'sync',
+          '${acc.id}: готово за '
+              '${DateTime.now().difference(started).inMilliseconds} мс, '
+              'календарей ${cals.length}'
+              '${attempt > 1 ? ', с попытки $attempt' : ''}',
+        );
         return AccountSyncReport(acc.id);
       } catch (e, st) {
         lastErr = e;
         lastStack = st;
-        DiagLog.instance.add('sync',
-            '${acc.id}: попытка $attempt из 3 не удалась: ${e.runtimeType}: $e');
+        DiagLog.instance.add(
+          'sync',
+          '${acc.id}: попытка $attempt из 3 не удалась: ${e.runtimeType}: $e',
+        );
         if (attempt < 3) {
           await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
         }
@@ -284,19 +341,20 @@ class SyncEngine {
         : _isNetwork(lastErr)
         ? AccountStatus.offline
         : AccountStatus.syncError;
-    if (status == AccountStatus.offline &&
-        !(networkExpected?.call() ?? true)) {
+    if (status == AccountStatus.offline && !(networkExpected?.call() ?? true)) {
       DiagLog.instance.add(
-          'sync',
-          '${acc.id}: приложение в фоне, сети нет — статус аккаунта не трогаю '
-              '(${lastErr.runtimeType})');
+        'sync',
+        '${acc.id}: приложение в фоне, сети нет — статус аккаунта не трогаю '
+            '(${lastErr.runtimeType})',
+      );
       return AccountSyncReport(acc.id, error: lastErr);
     }
     DiagLog.instance.error(
-        'sync',
-        '${acc.id} (${acc.provider.name}, ${acc.email}): статус ${status.name}',
-        lastErr ?? 'неизвестная ошибка',
-        lastStack);
+      'sync',
+      '${acc.id} (${acc.provider.name}, ${acc.email}): статус ${status.name}',
+      lastErr ?? 'неизвестная ошибка',
+      lastStack,
+    );
     await accounts.recordSyncFailure(acc.id, status, _describe(lastErr));
     return AccountSyncReport(acc.id, error: lastErr);
   }
@@ -393,13 +451,12 @@ class SyncEngine {
     }
   }
 
-  /// Сколько раз пробуем протолкнуть задание, прежде чем признать провал и
-  /// показать ошибку (вместо тихого вечного ретрая — FR-A6).
+  /// Лимит автоматических попыток. Ошибка видна уже после первой неудачи.
   static const _maxOutboxRetries = 5;
 
   /// Проталкивает Outbox своего аккаунта. Возвращает текст ошибки, если хотя бы
-  /// одна правка не доехала (постоянная ошибка или исчерпан лимит попыток), —
-  /// иначе null. Ошибку поднимаем в [_syncAccount], чтобы статус стал error.
+  /// одна правка не доехала, иначе null. Неуспех показываем сразу, не ожидая
+  /// окончания pull; [_syncAccount] сохраняет этот статус после чтения.
   Future<String?> _processOutbox(Account acc, CalendarProvider provider) async {
     final pending = await events.pendingOutbox();
     // pending — snapshot. Если первый create/update канонизирует id,
@@ -416,20 +473,28 @@ class SyncEngine {
     }
 
     String? failure;
+    final blocked = <String>{};
     for (final item in pending) {
-      final effectiveEventId = resolveEventId(item.eventId);
+      // Another account's pass can rekey rows while this snapshot is waiting.
+      // Resolve the durable alias and read the row in one transaction, before
+      // deciding whether an operation is orphaned or belongs to this account.
+      final current = await events.getByReference(resolveEventId(item.eventId));
+      final effectiveEventId = current?.id ?? resolveEventId(item.eventId);
+      if (blocked.contains(effectiveEventId)) continue;
       // Задание уже исчерпало попытки — не долбим сервер молча; ошибка уже
       // отражена в статусе аккаунта (см. catch ниже). Ждём ручного действия.
       if (item.retryCount >= _maxOutboxRetries) {
         // Но принадлежность СВОЕМУ аккаунту всё равно проверим для отчёта.
-        final ev = await events.getById(effectiveEventId);
-        if (item.op == 'create' || ev?.source.accountId == acc.id) {
+        if (current?.source.accountId == acc.id) {
+          blocked.add(effectiveEventId);
           failure ??= 'изменение не отправлено (исчерпаны попытки)';
         }
         continue;
       }
       try {
-        final event = await events.getById(effectiveEventId);
+        final event = current == null
+            ? null
+            : events.eventForOperation(item, current);
         // Пуш только для СВОЕГО аккаунта. Раньше синк другого аккаунта доходил
         // до removeOutbox и СТИРАЛ чужое задание, не отправив его (баг: локально
         // удалено, в облаке осталось). Для create аккаунт определяется по
@@ -485,24 +550,8 @@ class SyncEngine {
               final saved = (ev.conference?.isReady ?? false)
                   ? created.copyWith(conference: ev.conference)
                   : created;
-              // Сервер присвоил СВОЙ id (напр. Google → accId:providerId) —
-              // удаляем оптимистичную локальную строку со старым UUID, иначе
-              // остаются ДВА события (UUID-копия dirty + серверная). FR-S4.
-              if (saved.id != event.id) {
-                await events.rekeyLocalDirtyAndOutbox(event.id, saved);
-                aliases[event.id] = saved.id;
-              } else {
-                await events.putLocalDirty(saved);
-              }
-              // Создали СЕРИЮ: провайдер вернул мастера, а читать мы будем
-              // развёрнутые вхождения. Оставить мастера локально нельзя —
-              // он повиснет в сетке лишней встречей рядом с первым вхождением
-              // (и перетаскивание попадёт по нему, сдвинув всю серию). Строку
-              // помечаем чистой: pull ниже принесёт вхождения, а сверка окна
-              // уберёт мастера в той же транзакции.
-              if (saved.recurrenceRule != null && saved.recurrenceId == null) {
-                await events.putLocalClean(saved);
-              }
+              await events.acknowledgeWrite(item, event, saved);
+              if (saved.id != event.id) aliases[event.id] = saved.id;
             }
           case 'update':
             if (event != null && event.source.accountId == acc.id) {
@@ -516,27 +565,8 @@ class SyncEngine {
                 scope: scope,
                 originalStartUtc: _readEpochUtc(item.payloadJson, 'origStart'),
               );
-              // Адаптер может канонизировать локальный id (например,
-              // CalDAV legacy `account:calendar:`-префиксы). Переносим
-              // dirty-строку на новый ключ, чтобы pull очистил её, а
-              // старый dirty-дубль не пережил reconcile.
-              if (updated.id != event.id) {
-                await events.rekeyLocalDirtyAndOutbox(event.id, updated);
-                aliases[event.id] = updated.id;
-              } else {
-                // Даже при том же локальном id провайдер мог вернуть новый
-                // ETag/changeKey. Следующий update/delete из уже загруженной
-                // цепочки обязан увидеть его, иначе отправит stale If-Match.
-                await events.putLocalDirty(updated);
-              }
-              // Сдвинули СЕРИЮ — у вхождений меняются времена, а с ними и
-              // локальные id (`<master>_<время>` у Google, uid + RECURRENCE-ID
-              // у CalDAV). Отправленная строка адресует старое вхождение,
-              // которого больше нет: оставь её dirty — и она навсегда зависнет
-              // рядом с новым временем. Помечаем чистой, сверка окна уберёт.
-              if (scope != RecurrenceScope.thisOnly) {
-                await events.putLocalClean(updated);
-              }
+              await events.acknowledgeWrite(item, event, updated);
+              if (updated.id != event.id) aliases[event.id] = updated.id;
             }
           case 'delete':
             if (event != null && event.source.accountId == acc.id) {
@@ -562,21 +592,26 @@ class SyncEngine {
                       ) ??
                       0];
               await provider.respondToInvite(acc, event, resp);
+              await events.acknowledgeWrite(item, event, event);
             }
         }
         await events.removeOutbox(item.id);
       } catch (e) {
+        blocked.add(effectiveEventId);
+        failure ??= 'Изменение не отправлено: ${_describe(e)}';
+        await accounts.recordSyncFailure(
+          acc.id,
+          AccountStatus.syncError,
+          failure,
+        );
         final attempts = item.retryCount + 1;
         await events.bumpRetry(item.id, attempts);
         // Постоянные ошибки (не поддерживается провайдером) ретраить бессмысленно
-        // — сразу «сжигаем» попытки. Иначе — после лимита. В обоих случаях
-        // показываем ошибку на аккаунте, а не теряем правку молча.
+        // — сразу «сжигаем» попытки. Временные ошибки оставляем для retry,
+        // сохраняя видимый статус ошибки.
         final permanent = e is UnsupportedError || e is UnimplementedError;
         if (permanent) {
           await events.bumpRetry(item.id, _maxOutboxRetries);
-        }
-        if (permanent || attempts >= _maxOutboxRetries) {
-          failure ??= _describe(e);
         }
       }
     }

@@ -58,61 +58,146 @@ void main() {
   });
   tearDown(() => db.close());
 
-  SyncEngine engineWith(CalendarProvider p,
-          {Duration soft = const Duration(milliseconds: 40),
-          Duration hard = const Duration(seconds: 30)}) =>
-      SyncEngine(
-        registry: ProviderRegistry(overrideFactory: (_) => p),
-        accounts: accounts,
-        events: events,
-        softLimit: soft,
-        hardLimit: hard,
+  SyncEngine engineWith(
+    CalendarProvider p, {
+    Duration soft = const Duration(milliseconds: 40),
+    Duration hard = const Duration(seconds: 30),
+  }) => SyncEngine(
+    registry: ProviderRegistry(overrideFactory: (_) => p),
+    accounts: accounts,
+    events: events,
+    softLimit: soft,
+    hardLimit: hard,
+  );
+
+  test(
+    'долгий проход не считается сбоем и не запускается второй раз',
+    () async {
+      final provider = _SlowProvider();
+      final engine = engineWith(provider);
+
+      final first = await engine.syncAccount(acc);
+      expect(first.ok, isFalse);
+      expect(first.error, 'still running');
+      expect(
+        (await accounts.allAccounts()).single.status,
+        AccountStatus.ok,
+        reason: 'проход ещё идёт — это не ошибка аккаунта',
+      );
+      expect(
+        engine.activeCount,
+        1,
+        reason: 'индикатор синка продолжает гореть',
       );
 
-  test('долгий проход не считается сбоем и не запускается второй раз',
-      () async {
-    final provider = _SlowProvider();
-    final engine = engineWith(provider);
+      // Минутный тик и ручной refresh, пока проход идёт.
+      await engine.syncAccount(acc);
+      await engine.syncAccount(acc);
+      expect(provider.passes, 1, reason: 'новые проходы не наслаиваются');
 
-    final first = await engine.syncAccount(acc);
-    expect(first.ok, isFalse);
-    expect(first.error, 'still running');
-    expect((await accounts.allAccounts()).single.status, AccountStatus.ok,
-        reason: 'проход ещё идёт — это не ошибка аккаунта');
-    expect(engine.activeCount, 1, reason: 'индикатор синка продолжает гореть');
+      provider.gate.complete();
+      final done = await engine.syncAccount(acc);
+      expect(done.ok, isTrue);
+      final account = (await accounts.allAccounts()).single;
+      expect(account.status, AccountStatus.ok);
+      expect(account.lastSyncUtc, isNotNull);
+      expect(engine.activeCount, 0);
+      expect(DiagLog.instance.dump(), contains('продолжается в фоне'));
+    },
+  );
 
-    // Минутный тик и ручной refresh, пока проход идёт.
-    await engine.syncAccount(acc);
-    await engine.syncAccount(acc);
-    expect(provider.passes, 1, reason: 'новые проходы не наслаиваются');
-
-    provider.gate.complete();
-    final done = await engine.syncAccount(acc);
-    expect(done.ok, isTrue);
-    final account = (await accounts.allAccounts()).single;
-    expect(account.status, AccountStatus.ok);
-    expect(account.lastSyncUtc, isNotNull);
-    expect(engine.activeCount, 0);
-    expect(DiagLog.instance.dump(), contains('продолжается в фоне'));
-  });
-
-  test('зависший проход получает статус ошибки, следующий вызов начинает новый',
-      () async {
-    final provider = _SlowProvider();
-    final engine = engineWith(provider,
+  test(
+    'hard timeout сообщает ошибку, но не освобождает ещё работающий проход',
+    () async {
+      final provider = _SlowProvider();
+      final engine = engineWith(
+        provider,
         soft: const Duration(milliseconds: 20),
-        hard: const Duration(milliseconds: 60));
+        hard: const Duration(milliseconds: 60),
+      );
 
-    await engine.syncAccount(acc);
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+      await engine.syncAccount(acc);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
 
-    final account = (await accounts.allAccounts()).single;
-    expect(account.status, AccountStatus.syncError);
-    expect(account.lastError, contains('лимит времени'));
-    expect(engine.activeCount, 0);
+      final account = (await accounts.allAccounts()).single;
+      expect(account.status, AccountStatus.syncError);
+      expect(account.lastError, contains('лимит времени'));
+      expect(engine.activeCount, 1);
 
-    await engine.syncAccount(acc);
-    expect(provider.passes, 2);
-    provider.gate.complete();
-  });
+      await engine.syncAccount(acc);
+      expect(provider.passes, 1);
+      provider.gate.complete();
+      await engine.whenIdle();
+      expect(engine.activeCount, 0);
+      engine.dispose();
+    },
+  );
+  test(
+    'separate engines wait for shared ownership before reading outbox',
+    () async {
+      final firstProvider = _SlowProvider();
+      final secondProvider = _SlowProvider();
+      final released = Completer<void>();
+      final waiting = Completer<void>();
+      final first = SyncEngine(
+        registry: ProviderRegistry(overrideFactory: (_) => firstProvider),
+        accounts: accounts,
+        events: events,
+        acquireAccount: (_) async {},
+        releaseAccount: (_) async {
+          released.complete();
+        },
+      );
+      final second = SyncEngine(
+        registry: ProviderRegistry(overrideFactory: (_) => secondProvider),
+        accounts: accounts,
+        events: events,
+        acquireAccount: (_) async {
+          waiting.complete();
+          await released.future;
+        },
+        releaseAccount: (_) async {},
+      );
+      final bg = first.syncAccount(acc);
+      final ui = second.syncAccount(acc);
+      await waiting.future;
+      expect(secondProvider.passes, 0);
+      firstProvider.gate.complete();
+      await bg;
+      secondProvider.gate.complete();
+      expect((await ui).ok, isTrue);
+      expect(firstProvider.passes, 1);
+      expect(secondProvider.passes, 1);
+      first.dispose();
+      second.dispose();
+    },
+  );
+
+  test(
+    'failed ownership acquisition sends no request and is visible',
+    () async {
+      final provider = _SlowProvider();
+      var releases = 0;
+      final engine = SyncEngine(
+        registry: ProviderRegistry(overrideFactory: (_) => provider),
+        accounts: accounts,
+        events: events,
+        acquireAccount: (_) async {
+          throw StateError('host unavailable');
+        },
+        releaseAccount: (_) async {
+          releases++;
+        },
+      );
+      expect((await engine.syncAccount(acc)).ok, isFalse);
+      expect(provider.passes, 0);
+      expect(releases, 0);
+      expect(engine.activeCount, 0);
+      expect(
+        (await accounts.allAccounts()).single.status,
+        AccountStatus.syncError,
+      );
+      engine.dispose();
+    },
+  );
 }
