@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _Http implements HttpClientAdapter {
   int status = 200;
+  String? calendarBody;
   final calls = <RequestOptions>[];
   Map<String, dynamic> body = {
     'id': 'server',
@@ -30,11 +31,17 @@ class _Http implements HttpClientAdapter {
     Future<void>? cancel,
   ) async {
     calls.add(options);
+    if (options.method == 'PUT' && options.data is String && status < 300) {
+      calendarBody = options.data as String;
+    }
+    final calendarRead = options.method == 'GET' && calendarBody != null;
     return ResponseBody.fromString(
-      jsonEncode(body),
+      calendarRead ? calendarBody! : jsonEncode(body),
       status,
       headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
+        Headers.contentTypeHeader: [
+          calendarRead ? 'text/calendar' : Headers.jsonContentType,
+        ],
         'etag': ['v2'],
       },
     );
@@ -287,10 +294,10 @@ void main() {
           if (kind != ProviderType.caldav) expect(updated.id, event.id);
           expect(updated.source.providerEventId, isNotNull);
           expect(updated.source.etag, 'v2');
-          expect(http.calls.single.headers['If-Match'], 'v1');
+          expect(http.calls.first.headers['If-Match'], 'v1');
           expect(
-            http.calls.single.method,
-            kind == ProviderType.caldav ? 'PUT' : 'PATCH',
+            http.calls.map((call) => call.method),
+            kind == ProviderType.caldav ? ['PUT', 'GET'] : ['PATCH'],
           );
         },
       );
