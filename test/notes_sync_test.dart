@@ -23,8 +23,9 @@ class _FakeTasks implements HttpClientAdapter {
   final lists = <String, String>{}; // id → title
   final tasks = <String, Map<String, dynamic>>{}; // id → task
   var _seq = 0;
+  Duration clockOffset = Duration.zero;
 
-  String _now() => DateTime.now().toUtc().add(Duration(milliseconds: _seq)).toIso8601String();
+  String _now() => DateTime.now().toUtc().add(clockOffset).add(Duration(milliseconds: _seq)).toIso8601String();
 
   @override
   Future<ResponseBody> fetch(RequestOptions o, Stream<Uint8List>? body, Future<void>? cancel) async {
@@ -161,6 +162,61 @@ void main() {
     await b.sync.sync();
     expect(await b.notes.read(meeting('acc-b:9')), isNull);
   });
+
+  for (final delete in [false, true]) {
+    test(
+      'неизменённая серверная версия не затирает ${delete ? 'удаление' : 'правку'} при расхождении часов',
+      () async {
+        // Сервер опережает оба устройства. Его уже полученная версия не
+        // является конфликтующей правкой, даже если её timestamp новее.
+        cloud.clockOffset = const Duration(hours: 1);
+        await a.notes.write(meeting('acc-a:1'), 'v1');
+        expect((await a.sync.sync()).ok, isTrue);
+        expect((await b.sync.sync()).ok, isTrue);
+        final received = (await b.notes.all()).single;
+        expect(received.updatedUtc.isAfter(DateTime.now().toUtc()), isTrue);
+
+        await b.notes.write(meeting('acc-b:9'), delete ? '' : 'v2 с телефона');
+        final result = await b.sync.sync();
+        expect(result.ok, isTrue);
+        expect(result.pushed, 1);
+        expect((await a.sync.sync()).ok, isTrue);
+        expect(
+          await a.notes.read(meeting('acc-a:1')),
+          delete ? isNull : 'v2 с телефона',
+        );
+        expect(
+          await b.notes.read(meeting('acc-b:9')),
+          delete ? isNull : 'v2 с телефона',
+        );
+        expect(cloud.tasks, hasLength(delete ? 0 : 1));
+      },
+    );
+  }
+
+  test(
+    'действительно новая серверная правка участвует в разрешении конфликта',
+    () async {
+      cloud.clockOffset = const Duration(hours: 1);
+      await a.notes.write(meeting('acc-a:1'), 'v1');
+      expect((await a.sync.sync()).ok, isTrue);
+      await a.notes.write(meeting('acc-a:1'), 'локальная правка');
+      final id = cloud.tasks.keys.single;
+      cloud.tasks[id] = {
+        ...cloud.tasks[id]!,
+        'notes': cloud.tasks[id]!['notes'].toString().replaceFirst(
+          'v1',
+          'новая серверная правка',
+        ),
+        'updated': DateTime.utc(2099).toIso8601String(),
+      };
+      final result = await a.sync.sync();
+      expect(result.ok, isTrue);
+      expect(result.pulled, 1);
+      expect(result.pushed, 0);
+      expect(await a.notes.read(meeting('acc-a:1')), 'новая серверная правка');
+    },
+  );
 
   test('текст, исправленный прямо в Google Tasks, приходит в Calenfi', () async {
     await a.notes.write(meeting('acc-a:1'), 'старый текст');

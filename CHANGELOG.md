@@ -6,12 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.26] - 2026-10-20
+
 ### Added
 - Desktop interface scaling from 100% to 200%, saved between launches.
 - Accept, decline and tentative responses to CalDAV invitations on servers
   supporting automatic scheduling.
 
 ### Fixed
+- Preserve local note edits and deletions when the unchanged Google Tasks
+  revision has a timestamp ahead of the device clock.
 - Check CalDAV invitation support before changing local state, show preflight
   errors in the meeting card, and release later edits after an unsupported reply.
 - Verify CalDAV reply delivery separately from HTTP save success, retain failed

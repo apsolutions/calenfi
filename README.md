@@ -11,6 +11,18 @@ on-device, editable offline.
 
 > Built with Flutter · Riverpod · Drift.
 
+**Download:** [latest public release](https://github.com/apsolutions/calenfi/releases/latest)
+· **Source:** [apsolutions/calenfi](https://github.com/apsolutions/calenfi)
+· **Internal builds:** [private releases](https://git.apsolutions.ru/ki/calenfi/-/releases)
+(requires access).
+
+For Samsung Galaxy Z Fold and other modern Android phones, choose the
+`arm64-v8a.apk` asset. The installed app is named **Calenfi**.
+If you already use an internal build, update it from the private releases:
+the public APK uses a different signing key and cannot replace it.
+Do not uninstall the existing app to resolve a signature mismatch; that removes
+its local data.
+
 ## Features
 
 - **One grid, many sources** — Google Calendar, Microsoft 365 (Graph), Yandex
@@ -92,8 +104,10 @@ Prebuilt binaries for every platform are attached to each
 > **macOS:** the app is ad-hoc signed (no Apple Developer notarization), so on
 > first launch macOS blocks it. Right-click the app → **Open** → **Open**, once.
 >
-> **Android:** the APK is signed with a debug key for now — Android will warn on
-> install. A release-signed build is planned.
+> **Android:** public APKs currently use a build runner's debug key. That key can
+> change between releases, so Android may reject an update even when the package
+> name matches. Internal builds use a persistent private signing key. Update
+> through the same distribution channel and signing key as your installed app.
 
 ## Connecting accounts
 

@@ -107,7 +107,11 @@ class NotesSync {
           continue;
         }
         final remoteChanged = mine.taskUpdated != t.updatedRaw;
-        final remoteWins = mine.dirty ? t.updated.isAfter(mine.updatedUtc) : remoteChanged;
+        // Compare clocks only for a genuinely new server revision. The last
+        // downloaded revision cannot supersede an edit based on that revision,
+        // even when the server clock runs ahead of this device.
+        final remoteWins = remoteChanged &&
+            (!mine.dirty || t.updated.isAfter(mine.updatedUtc));
         if (remoteWins) {
           await notes.save(MeetingNote(
             id: mine.id,
