@@ -83,5 +83,7 @@ void main() {
     expect(find.byKey(const ValueKey('private-note-view')), findsOneWidget);
     expect(find.text('Повестка'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
   });
 }

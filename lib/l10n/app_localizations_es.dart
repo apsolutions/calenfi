@@ -867,4 +867,14 @@ class L10nEs extends L10n {
   @override
   String get setNotesLocalOnly =>
       'Solo en este dispositivo. Vuelve a conectar una cuenta de Google para sincronizarlas con Google Tasks.';
+
+  @override
+  String get detWritePending => 'El servidor aún no ha confirmado el cambio';
+
+  @override
+  String get detWriteFailed =>
+      'Cambio no enviado. Está guardado en este dispositivo; consulta el estado de la cuenta para más detalles.';
+
+  @override
+  String get detWriteConfirmed => 'Sincronizado con el servidor';
 }

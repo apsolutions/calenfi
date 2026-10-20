@@ -19,6 +19,7 @@ import '../event_editor/event_editor_screen.dart';
 import 'calendar_state.dart';
 import 'linkified_text.dart';
 import 'pending_edits.dart';
+import 'event_write_status.dart';
 import 'private_notes.dart';
 
 /// Карточка события (FR-V10) со склейкой источников (FR-D3), джойном видеовстречи
@@ -103,6 +104,7 @@ class _EventDetails extends ConsumerWidget {
             _EditableTitle(event: e),
             const SizedBox(height: 10),
             _row(Icons.schedule, schedule()),
+            EventWriteStatus(eventId: e.id),
             if (e.location != null && e.location!.trim().isNotEmpty)
               _Copyable(value: e.location!.trim(), child: _locationRow(e)),
             if (e.room != null)

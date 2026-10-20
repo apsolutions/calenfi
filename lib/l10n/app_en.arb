@@ -480,5 +480,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "detWritePending": "Change not yet confirmed by the server",
+  "detWriteFailed": "Change not sent. It is saved on this device; see account status for details.",
+  "detWriteConfirmed": "Synced with the server"
 }

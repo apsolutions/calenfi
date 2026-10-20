@@ -50,6 +50,18 @@ class EventRepository {
         });
   }
 
+  /// Per-event delivery state, independent of unrelated account refreshes.
+  Stream<({bool dirty, bool failed})?> watchWriteState(String id) => _db.customSelect(
+    'SELECT e.dirty, COALESCE(MAX(o.retry_count), 0) AS retries '
+    'FROM events e LEFT JOIN outbox o ON o.event_id = e.id '
+    'WHERE e.id = ? GROUP BY e.id',
+    variables: [Variable.withString(id)],
+    readsFrom: {_db.events, _db.outbox},
+  ).watch().map((rows) => rows.isEmpty ? null : (
+    dirty: rows.single.read<bool>('dirty'),
+    failed: rows.single.read<int>('retries') > 0,
+  ));
+
   Future<CalendarEvent?> getById(String id) async {
     final row = await (_db.select(
       _db.events,

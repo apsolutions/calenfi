@@ -850,4 +850,13 @@ class L10nZh extends L10n {
 
   @override
   String get setNotesLocalOnly => '仅在此设备上。重新连接 Google 账户即可通过 Google Tasks 同步。';
+
+  @override
+  String get detWritePending => '更改尚未获得服务器确认';
+
+  @override
+  String get detWriteFailed => '更改未发送，已保存在此设备上。详情请查看账户状态。';
+
+  @override
+  String get detWriteConfirmed => '已与服务器同步';
 }

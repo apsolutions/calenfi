@@ -119,9 +119,11 @@ class EwsProvider implements CalendarProvider {
     final result = <String, _EwsDetails>{};
     const chunkSize = 50;
     for (var i = 0; i < ids.length; i += chunkSize) {
-      final chunk = ids.sublist(i, i + chunkSize > ids.length ? ids.length : i + chunkSize);
-      final idsXml =
-          chunk.map((id) => '<t:ItemId Id="${_attr(id)}"/>').join();
+      final chunk = ids.sublist(
+        i,
+        i + chunkSize > ids.length ? ids.length : i + chunkSize,
+      );
+      final idsXml = chunk.map((id) => '<t:ItemId Id="${_attr(id)}"/>').join();
       final req = '''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
 <soap:Header><t:RequestServerVersion Version="Exchange2010_SP2"/></soap:Header>
@@ -133,23 +135,31 @@ class EwsProvider implements CalendarProvider {
 </m:ItemShape><m:ItemIds>$idsXml</m:ItemIds></m:GetItem></soap:Body></soap:Envelope>''';
       try {
         final xml = await _soap(
-            'http://schemas.microsoft.com/exchange/services/2006/messages/GetItem',
-            req);
+          'http://schemas.microsoft.com/exchange/services/2006/messages/GetItem',
+          req,
+        );
         final doc = XmlDocument.parse(xml);
         var j = 0;
-        for (final msg
-            in doc.findAllElements('GetItemResponseMessage', namespace: _mns)) {
+        for (final msg in doc.findAllElements(
+          'GetItemResponseMessage',
+          namespace: _mns,
+        )) {
           if (j >= chunk.length) break;
-          final b =
-              msg.findAllElements('Body', namespace: _tns).firstOrNull?.innerText;
-          final t = b == null ? null : _stripHtml(b);
+          final body = msg.findAllElements('Body', namespace: _tns).firstOrNull;
+          final t = body == null
+              ? null
+              : body.getAttribute('BodyType') == 'Text'
+              ? body.innerText
+              : _stripHtml(body.innerText);
           result[chunk[j]] = _EwsDetails(
             body: (t == null || t.isEmpty) ? null : t,
             attendees: parseAttendees(msg),
           );
           j++;
         }
-      } catch (_) {/* детали необязательны — без них нет описания и гостей */}
+      } catch (_) {
+        /* детали необязательны — без них нет описания и гостей */
+      }
     }
     return result;
   }
@@ -407,11 +417,31 @@ ${_attendeesXml(attendees)}
   /// схлопываем пустые строки. Ссылки остаются текстом (кликабельны в карточке
   /// через LinkifiedText).
   static String _stripHtml(String html) {
-    var s = html;
+    // Anchor labels such as “Join” contain no URL. Preserve the href BEFORE
+    // removing tags; otherwise the only way to enter the meeting disappears.
+    var s = html.replaceAllMapped(
+      RegExp(
+        r'''<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)</a\s*>''',
+        caseSensitive: false,
+      ),
+      (m) {
+        final href = m[1] ?? m[2] ?? m[3] ?? '';
+        final label = m[4]!;
+        final uri = Uri.tryParse(href);
+        if (uri == null ||
+            !{'http', 'https', 'mailto'}.contains(uri.scheme.toLowerCase())) {
+          return label;
+        }
+        return label.replaceAll(RegExp(r'<[^>]*>'), '').trim() == href
+            ? label
+            : '$label ($href)';
+      },
+    );
     s = s.replaceAll(RegExp(r'<\s*br\s*/?>', caseSensitive: false), '\n');
     s = s.replaceAll(
-        RegExp(r'</\s*(p|div|tr|li|h[1-6]|table)\s*>', caseSensitive: false),
-        '\n');
+      RegExp(r'</\s*(p|div|tr|li|h[1-6]|table)\s*>', caseSensitive: false),
+      '\n',
+    );
     s = s.replaceAll(RegExp(r'<[^>]*>'), '');
     s = s
         .replaceAll('&nbsp;', ' ')
@@ -420,6 +450,18 @@ ${_attendeesXml(attendees)}
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')
         .replaceAll('&#39;', "'")
+        .replaceAllMapped(RegExp(r'&#(x[0-9a-fA-F]+|[0-9]+);'), (m) {
+          final raw = m[1]!;
+          final code = int.tryParse(
+            raw.startsWith('x') ? raw.substring(1) : raw,
+            radix: raw.startsWith('x') ? 16 : 10,
+          );
+          return code == null ||
+                  code > 0x10ffff ||
+                  (code >= 0xd800 && code <= 0xdfff)
+              ? ' '
+              : String.fromCharCode(code);
+        })
         .replaceAll(RegExp(r'&[a-zA-Z#0-9]+;'), ' ');
     s = s.replaceAll(RegExp(r'[ \t]+'), ' ');
     s = s.replaceAll(RegExp(r'\n[ \t]+'), '\n');

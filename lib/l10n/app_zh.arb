@@ -250,5 +250,8 @@
   "detNotesPrivate": "保存在 Calenfi 并在你的设备间同步；不会发送到日历或参与者。",
   "setNotesSync": "会议笔记",
   "setNotesSyncVia": "通过 Google Tasks 在设备间同步：{email}",
-  "setNotesLocalOnly": "仅在此设备上。重新连接 Google 账户即可通过 Google Tasks 同步。"
+  "setNotesLocalOnly": "仅在此设备上。重新连接 Google 账户即可通过 Google Tasks 同步。",
+  "detWritePending": "更改尚未获得服务器确认",
+  "detWriteFailed": "更改未发送，已保存在此设备上。详情请查看账户状态。",
+  "detWriteConfirmed": "已与服务器同步"
 }

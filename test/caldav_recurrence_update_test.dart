@@ -29,6 +29,8 @@ class _RecordingAdapter implements HttpClientAdapter {
 
   final ResponseBody Function(RequestOptions options) respond;
   final requests = <_Request>[];
+  String? storedBody;
+  Map<String, List<String>> storedHeaders = {};
 
   @override
   Future<ResponseBody> fetch(
@@ -49,7 +51,17 @@ class _RecordingAdapter implements HttpClientAdapter {
         Map<String, dynamic>.from(options.headers),
       ),
     );
-    return respond(options);
+    if (options.method == 'GET' && storedBody != null) {
+      return ResponseBody.fromString(storedBody!, 200, headers: storedHeaders);
+    }
+    final response = respond(options);
+    if (options.method == 'PUT' &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300) {
+      storedBody = utf8.decode(bytes);
+      storedHeaders = response.headers;
+    }
+    return response;
   }
 
   @override
@@ -137,7 +149,7 @@ END:VCALENDAR''';
       );
       await provider.deleteEvent(account, moved, RecurrenceScope.thisOnly);
       expect(adapter.requests.map((r) => r.method), ['GET', 'PUT']);
-      final put = adapter.requests.last;
+      final put = adapter.requests.lastWhere((r) => r.method == 'PUT');
       expect(put.headers['If-Match'], 'fresh-etag');
       expect(put.body, contains('EXDATE:20260902T100000Z'));
       expect(put.body, isNot(contains('RECURRENCE-ID:20260902T100000Z')));
@@ -361,8 +373,12 @@ END:VCALENDAR''';
 
     final updated = await provider.updateEvent(account, occurrence);
 
-    expect(adapter.requests.map((request) => request.method), ['GET', 'PUT']);
-    final put = adapter.requests.last;
+    expect(adapter.requests.map((request) => request.method), [
+      'GET',
+      'PUT',
+      'GET',
+    ]);
+    final put = adapter.requests.lastWhere((r) => r.method == 'PUT');
     expect(put.headers['If-Match'], 'fresh-etag');
     expect(put.body, contains('RRULE:FREQ=DAILY;COUNT=3'));
     expect(put.body, contains('X-MASTER-PRESERVED:yes'));
@@ -430,7 +446,7 @@ END:VCALENDAR''';
       originalStartUtc: DateTime.utc(2026, 9, 3, 10),
     );
 
-    final put = adapter.requests.last;
+    final put = adapter.requests.lastWhere((r) => r.method == 'PUT');
     expect(put.body, contains('RRULE:FREQ=WEEKLY;BYDAY=TH'));
     expect(put.body, isNot(contains('RRULE:FREQ=DAILY;COUNT=3')));
     // Мастер остаётся мастером: его дата начала не переезжает на вхождение.
@@ -488,8 +504,12 @@ END:VCALENDAR''';
 
     await provider.updateEvent(account, master);
 
-    final put = adapter.requests.last;
-    expect(adapter.requests.map((request) => request.method), ['GET', 'PUT']);
+    final put = adapter.requests.lastWhere((r) => r.method == 'PUT');
+    expect(adapter.requests.map((request) => request.method), [
+      'GET',
+      'PUT',
+      'GET',
+    ]);
     expect(put.headers['If-Match'], 'master-fresh-etag');
     expect(put.body, contains('RRULE:FREQ=WEEKLY;COUNT=5'));
     expect(put.body, isNot(contains('RRULE:FREQ=DAILY;COUNT=5')));

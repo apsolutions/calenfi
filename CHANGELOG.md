@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-10-20
+
+### Fixed
+- Exchange descriptions retain the destinations of HTML links labelled “Join”
+  and preserve plain-text addresses enclosed in angle brackets.
+- CalDAV edits require a readback confirming the saved event after PUT. A
+  server that retains the old time no longer makes a pending move disappear;
+  the edit stays queued and the account reports the failure.
+- CalDAV updates preserve the meeting organizer instead of replacing the
+  organizer with the current attendee.
+
+### Added
+- Meeting cards show their own pending, failed or synchronized state separately
+  from the global synchronization indicator.
+
+### Tests
+- Hidden meeting links, plain-text bodies, ignored writes, missing resources,
+  readback failures, ETags and an overlapping edit during write verification.
+
 ## [0.3.26] - 2026-10-20
 
 ### Added

@@ -32,6 +32,8 @@ class _RecordingAdapter implements HttpClientAdapter {
 
   final ResponseBody Function(RequestOptions options) respond;
   final requests = <_Request>[];
+  String? storedBody;
+  Map<String, List<String>> storedHeaders = {};
 
   @override
   Future<ResponseBody> fetch(
@@ -53,7 +55,17 @@ class _RecordingAdapter implements HttpClientAdapter {
         Map<String, dynamic>.from(options.headers),
       ),
     );
-    return respond(options);
+    if (options.method == 'GET' && storedBody != null) {
+      return ResponseBody.fromString(storedBody!, 200, headers: storedHeaders);
+    }
+    final response = respond(options);
+    if (options.method == 'PUT' &&
+        response.statusCode >= 200 &&
+        response.statusCode < 300) {
+      storedBody = utf8.decode(bytes);
+      storedHeaders = response.headers;
+    }
+    return response;
   }
 
   @override
@@ -199,15 +211,27 @@ void main() {
 
       expect(updated.id, '$prefix$uid');
       expect(updated.source.providerEventId, href);
-      expect(adapter.requests.single.method, 'PUT');
       expect(
-        adapter.requests.single.uri.path,
+        adapter.requests.where((r) => r.method != 'GET').single.method,
+        'PUT',
+      );
+      expect(
+        adapter.requests.where((r) => r.method != 'GET').single.uri.path,
         '/calendars/me%40example.org/events-10922764/server-resource.ics',
       );
-      expect(adapter.requests.single.body, contains('UID:$uid\n'));
-      expect(adapter.requests.single.body, isNot(contains('UID:$prefix')));
       expect(
-        adapter.requests.single.headers['If-Match'],
+        adapter.requests.where((r) => r.method != 'GET').single.body,
+        contains('UID:$uid\n'),
+      );
+      expect(
+        adapter.requests.where((r) => r.method != 'GET').single.body,
+        isNot(contains('UID:$prefix')),
+      );
+      expect(
+        adapter.requests
+            .where((r) => r.method != 'GET')
+            .single
+            .headers['If-Match'],
         '1787918567000',
         reason: 'bare numeric Yandex ETag нельзя самовольно менять',
       );
@@ -264,12 +288,21 @@ void main() {
       created.source.providerEventId,
       '/calendars/me%40example.org/events-10922764/local-uuid-1.ics',
     );
-    expect(adapter.requests.single.body, contains('UID:$uid\n'));
     expect(
-      adapter.requests.single.uri.path,
+      adapter.requests.where((r) => r.method != 'GET').single.body,
+      contains('UID:$uid\n'),
+    );
+    expect(
+      adapter.requests.where((r) => r.method != 'GET').single.uri.path,
       '/calendars/me%40example.org/events-10922764/local-uuid-1.ics',
     );
-    expect(adapter.requests.single.headers['If-None-Match'], '*');
+    expect(
+      adapter.requests
+          .where((r) => r.method != 'GET')
+          .single
+          .headers['If-None-Match'],
+      '*',
+    );
     expect(created.source.etag, 'created-bare-etag');
   });
 
@@ -299,9 +332,12 @@ void main() {
     final updated = await p.updateEvent(acc, legacy);
 
     expect(updated.id, '$prefix$uid');
-    expect(adapter.requests.single.body, contains('UID:$uid\n'));
     expect(
-      adapter.requests.single.body,
+      adapter.requests.where((r) => r.method != 'GET').single.body,
+      contains('UID:$uid\n'),
+    );
+    expect(
+      adapter.requests.where((r) => r.method != 'GET').single.body,
       isNot(contains('UID:acc-yandex:$uid')),
     );
   });
@@ -580,7 +616,13 @@ END:VCALENDAR''';
     );
 
     await expectLater(p.updateEvent(acc, event), throwsA(isA<DioException>()));
-    expect(adapter.requests.single.headers['If-Match'], '1787918567000');
+    expect(
+      adapter.requests
+          .where((r) => r.method != 'GET')
+          .single
+          .headers['If-Match'],
+      '1787918567000',
+    );
   });
 
   test('same CTag не пропускает REPORT/fullWindow после remote delete', () async {

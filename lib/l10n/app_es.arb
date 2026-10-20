@@ -250,5 +250,8 @@
   "detNotesPrivate": "Se queda en Calenfi y se sincroniza entre tus dispositivos; nunca va al calendario ni a los asistentes.",
   "setNotesSync": "Notas de reuniones",
   "setNotesSyncVia": "Sincronizadas entre dispositivos con Google Tasks: {email}",
-  "setNotesLocalOnly": "Solo en este dispositivo. Vuelve a conectar una cuenta de Google para sincronizarlas con Google Tasks."
+  "setNotesLocalOnly": "Solo en este dispositivo. Vuelve a conectar una cuenta de Google para sincronizarlas con Google Tasks.",
+  "detWritePending": "El servidor aún no ha confirmado el cambio",
+  "detWriteFailed": "Cambio no enviado. Está guardado en este dispositivo; consulta el estado de la cuenta para más detalles.",
+  "detWriteConfirmed": "Sincronizado con el servidor"
 }

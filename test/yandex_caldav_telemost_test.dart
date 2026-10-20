@@ -27,6 +27,7 @@ class _Request {
 
 class _RecordingAdapter implements HttpClientAdapter {
   final requests = <_Request>[];
+  String stored = "";
 
   @override
   Future<ResponseBody> fetch(
@@ -41,7 +42,11 @@ class _RecordingAdapter implements HttpClientAdapter {
       }
     }
     requests.add(_Request(options.method, utf8.decode(bytes)));
-    return ResponseBody.fromString('', options.method == 'PUT' ? 201 : 200);
+    if (options.method == 'PUT') stored = utf8.decode(bytes);
+    return ResponseBody.fromString(
+      options.method == 'GET' ? stored : '',
+      options.method == 'PUT' ? 201 : 200,
+    );
   }
 
   @override
@@ -210,37 +215,40 @@ void main() {
     },
   );
 
-  test('CLI-style pending Telemost reaches CalDAV as an explicit request', () async {
-    final db = AppDatabase(NativeDatabase.memory());
-    addTearDown(db.close);
-    final provisioner = ConferenceProvisioner(
-      credentials: CredentialSource.empty(),
-    );
-    final event = _event(
-      calendar: _yandexCalendar,
-      conference: const Conference.pending(ConferenceType.telemost),
-    );
+  test(
+    'CLI-style pending Telemost reaches CalDAV as an explicit request',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final provisioner = ConferenceProvisioner(
+        credentials: CredentialSource.empty(),
+      );
+      final event = _event(
+        calendar: _yandexCalendar,
+        conference: const Conference.pending(ConferenceType.telemost),
+      );
 
-    final resolved = await provisioner.ensure(
-      event,
-      target: _yandex,
-      allAccounts: const [_yandex],
-      events: EventRepository(db),
-    );
-    expect(resolved.conference?.accountId, _yandex.id);
+      final resolved = await provisioner.ensure(
+        event,
+        target: _yandex,
+        allAccounts: const [_yandex],
+        events: EventRepository(db),
+      );
+      expect(resolved.conference?.accountId, _yandex.id);
 
-    final adapter = _RecordingAdapter();
-    final provider = CalDavProvider(
-      account: _yandex,
-      password: 'app-password',
-      dio: _dio(adapter),
-    );
-    await provider.createEvent(_yandex, _yandexCalendar, resolved);
-    expect(
-      adapter.requests.single.body,
-      contains('X-TELEMOST-REQUIRED:TRUE\n'),
-    );
-  });
+      final adapter = _RecordingAdapter();
+      final provider = CalDavProvider(
+        account: _yandex,
+        password: 'app-password',
+        dio: _dio(adapter),
+      );
+      await provider.createEvent(_yandex, _yandexCalendar, resolved);
+      expect(
+        adapter.requests.where((r) => r.method == 'PUT').single.body,
+        contains('X-TELEMOST-REQUIRED:TRUE\n'),
+      );
+    },
+  );
 
   test('Yandex create emits X-TELEMOST-REQUIRED', () async {
     final adapter = _RecordingAdapter();
@@ -263,13 +271,16 @@ void main() {
     );
 
     expect(adapter.requests, hasLength(1));
-    expect(adapter.requests.single.method, 'PUT');
     expect(
-      adapter.requests.single.body,
+      adapter.requests.where((r) => r.method == 'PUT').single.method,
+      'PUT',
+    );
+    expect(
+      adapter.requests.where((r) => r.method == 'PUT').single.body,
       contains('X-TELEMOST-REQUIRED:TRUE\n'),
     );
     expect(
-      adapter.requests.single.body,
+      adapter.requests.where((r) => r.method == 'PUT').single.body,
       isNot(contains('X-TELEMOST-CONFERENCE:')),
     );
   });
@@ -327,19 +338,24 @@ void main() {
         ),
       );
 
-      expect(adapter.requests, hasLength(1));
+      expect(adapter.requests.map((r) => r.method), ['PUT', 'GET']);
       expect(
-        adapter.requests.single.body,
+        adapter.requests.where((r) => r.method == 'PUT').single.body,
         contains('X-TELEMOST-REQUIRED:TRUE\n'),
       );
-      expect(adapter.requests.single.body, contains(url));
       expect(
-        RegExp(RegExp.escape(url)).allMatches(adapter.requests.single.body),
+        adapter.requests.where((r) => r.method == 'PUT').single.body,
+        contains(url),
+      );
+      expect(
+        RegExp(RegExp.escape(url)).allMatches(
+          adapter.requests.where((r) => r.method == 'PUT').single.body,
+        ),
         hasLength(1),
         reason: 'повторная правка не должна дублировать Telemost URL',
       );
       expect(
-        adapter.requests.single.body,
+        adapter.requests.where((r) => r.method == 'PUT').single.body,
         isNot(contains('X-TELEMOST-CONFERENCE:')),
       );
     },
@@ -363,7 +379,7 @@ void main() {
     );
 
     expect(
-      adapter.requests.single.body,
+      adapter.requests.where((r) => r.method == 'PUT').single.body,
       isNot(contains('X-TELEMOST-REQUIRED')),
     );
   });
@@ -387,9 +403,12 @@ void main() {
       ),
     );
 
-    expect(adapter.requests.single.body, contains('external-meeting'));
     expect(
-      adapter.requests.single.body,
+      adapter.requests.where((r) => r.method == 'PUT').single.body,
+      contains('external-meeting'),
+    );
+    expect(
+      adapter.requests.where((r) => r.method == 'PUT').single.body,
       isNot(contains('X-TELEMOST-REQUIRED')),
     );
   });

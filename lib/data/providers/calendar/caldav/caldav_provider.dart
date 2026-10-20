@@ -592,6 +592,36 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
         },
       ),
     );
+    // A successful PUT only acknowledges the request. Scheduling servers may
+    // retain the organizer's original time for an attendee's attempted move.
+    // Do not clear the durable outbox until a fresh read confirms the edit.
+    final stored = await _dio.requestUri(
+      Uri.parse(_url(href)),
+      options: _requestOptions('GET', headers: {'Cache-Control': 'no-cache'}),
+    );
+    final actual = parseIcs(stored.data.toString());
+    for (final wanted in parseIcs(body)) {
+      final saved = actual
+          .where(
+            (candidate) =>
+                _canonicalUid(acc, cal, candidate.uid) ==
+                    _canonicalUid(acc, cal, wanted.uid) &&
+                candidate.recurrenceIdUtc == wanted.recurrenceIdUtc,
+          )
+          .firstOrNull;
+      if (saved == null ||
+          saved.startUtc != wanted.startUtc ||
+          saved.endUtc != wanted.endUtc ||
+          saved.allDay != wanted.allDay ||
+          saved.summary != wanted.summary ||
+          saved.rrule != wanted.rrule) {
+        throw StateError(
+          'Сервер календаря не подтвердил изменение: сохранённая встреча '
+          'отличается от отправленной. Правка остаётся в очереди. '
+          'Если вы приглашённый участник, время меняет организатор.',
+        );
+      }
+    }
     return e
         .withLocalId(_eventId(acc, cal, uid, e.recurrenceId))
         .copyWith(
@@ -599,7 +629,10 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
             accountId: e.source.accountId,
             calendarId: e.calendarId,
             providerEventId: href,
-            etag: response.headers.value('etag')?.trim() ?? e.source.etag,
+            etag:
+                stored.headers.value('etag')?.trim() ??
+                response.headers.value('etag')?.trim() ??
+                e.source.etag,
           ),
         );
   }
@@ -1722,17 +1755,26 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
       description: v.description,
       recurrenceRule: recurrenceRule ?? v.rrule,
       recurrenceId: recurrenceId,
-      attendees: v.attendees
-          .map(
-            (a) => Attendee(
-              email: a.email,
-              response: _partstat(a.partstat),
-              isOrganizer:
-                  a.email.toLowerCase() == v.organizerEmail?.toLowerCase(),
-              isResource: a.cutype == 'ROOM' || a.cutype == 'RESOURCE',
-            ),
-          )
-          .toList(),
+      attendees: [
+        if (v.organizerEmail != null &&
+            !v.attendees.any(
+              (a) => a.email.toLowerCase() == v.organizerEmail!.toLowerCase(),
+            ))
+          Attendee(
+            email: v.organizerEmail!,
+            isOrganizer: true,
+            response: ResponseStatus.organizer,
+          ),
+        ...v.attendees.map(
+          (a) => Attendee(
+            email: a.email,
+            response: _partstat(a.partstat),
+            isOrganizer:
+                a.email.toLowerCase() == v.organizerEmail?.toLowerCase(),
+            isResource: a.cutype == 'ROOM' || a.cutype == 'RESOURCE',
+          ),
+        ),
+      ],
       myResponse: response,
       status: status,
       attachments: [
@@ -1828,7 +1870,7 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
     // Yandex принимает участников только с ORGANIZER и полными параметрами ATTENDEE.
     if (e.attendees.isNotEmpty) {
       buf.writeln(
-        'ORGANIZER;CN=${_esc(account.email)}:mailto:${account.email}',
+        'ORGANIZER:mailto:${e.attendees.where((a) => a.isOrganizer).firstOrNull?.email ?? account.email}',
       );
       for (final a in e.attendees) {
         final cn = a.displayName != null ? ';CN=${_esc(a.displayName!)}' : '';

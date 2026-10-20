@@ -1610,6 +1610,24 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Only on this device. Reconnect a Google account to sync them via Google Tasks.'**
   String get setNotesLocalOnly;
+
+  /// No description provided for @detWritePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Change not yet confirmed by the server'**
+  String get detWritePending;
+
+  /// No description provided for @detWriteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Change not sent. It is saved on this device; see account status for details.'**
+  String get detWriteFailed;
+
+  /// No description provided for @detWriteConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Synced with the server'**
+  String get detWriteConfirmed;
 }
 
 class _L10nDelegate extends LocalizationsDelegate<L10n> {

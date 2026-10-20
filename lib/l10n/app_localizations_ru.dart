@@ -879,4 +879,14 @@ class L10nRu extends L10n {
   @override
   String get setNotesLocalOnly =>
       'Только на этом устройстве. Переподключите Google-аккаунт, чтобы они синхронизировались через Google Tasks.';
+
+  @override
+  String get detWritePending => 'Изменение ещё не подтверждено сервером';
+
+  @override
+  String get detWriteFailed =>
+      'Изменение не отправлено. Оно сохранено на этом устройстве; подробности — в состоянии аккаунта.';
+
+  @override
+  String get detWriteConfirmed => 'Синхронизировано с сервером';
 }
