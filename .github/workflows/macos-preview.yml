@@ -12,7 +12,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '3.44.1', channel: stable, cache: true }
       - run: bash tools/setup_macos.sh
@@ -29,5 +29,5 @@ jobs:
         run: |
           cd build/macos/Build/Products/Release
           zip -ry "$GITHUB_WORKSPACE/calenfi-preview-macos.zip" calenfi.app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: macos-preview, path: calenfi-preview-macos.zip }

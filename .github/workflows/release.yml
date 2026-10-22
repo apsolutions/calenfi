@@ -22,7 +22,7 @@ jobs:
   identity:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Verify application identity
         run: bash tools/verify_application_identity.sh
 
@@ -31,7 +31,7 @@ jobs:
     needs: identity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Linux build deps
         run: |
           sudo apt-get update
@@ -48,7 +48,7 @@ jobs:
         run: |
           cd build/linux/x64/release/bundle
           tar czf "$GITHUB_WORKSPACE/calenfi-${GITHUB_REF_NAME}-linux-x64.tar.gz" .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: linux, path: calenfi-*-linux-x64.tar.gz }
 
   # ────────────────────────── Windows ───────────────────────────
@@ -56,7 +56,7 @@ jobs:
     needs: identity
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - run: flutter pub get
@@ -67,7 +67,7 @@ jobs:
         run: |
           Compress-Archive -Path build/windows/x64/runner/Release/* `
             -DestinationPath "calenfi-${env:GITHUB_REF_NAME}-windows-x64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: windows, path: calenfi-*-windows-x64.zip }
 
   # ─────────────────────────── macOS ────────────────────────────
@@ -75,7 +75,7 @@ jobs:
     needs: identity
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       # macos/ нет в репо (Flutter генерит её только на Mac) — создаём скриптом:
@@ -98,7 +98,7 @@ jobs:
         run: |
           cd build/macos/Build/Products/Release
           zip -ry "$GITHUB_WORKSPACE/calenfi-${GITHUB_REF_NAME}-macos.zip" calenfi.app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: macos, path: calenfi-*-macos.zip }
 
   # ────────────────────────── Android ───────────────────────────
@@ -106,8 +106,8 @@ jobs:
     needs: identity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '21' }
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
@@ -133,7 +133,7 @@ jobs:
             abi="${f#app-}"; abi="${abi%-release.apk}"
             cp "$f" "$GITHUB_WORKSPACE/calenfi-${GITHUB_REF_NAME}-${abi}.apk"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: { name: android, path: calenfi-*.apk }
 
   # ─────────────────── публикация GitHub Release ─────────────────
@@ -141,10 +141,10 @@ jobs:
     needs: [linux, windows, macos, android]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with: { path: dist, merge-multiple: true }
       - name: Create / update release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
