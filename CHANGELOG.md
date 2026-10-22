@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.28] - 2026-10-22
+
+### Fixed
+- Exchange connections have bounded TLS and response waits. EOF and malformed
+  responses fail the request and release the connection so sync can recover.
+- Failed Exchange detail requests no longer replace cached meeting descriptions
+  and attendees with an incomplete snapshot.
+- Yandex RSVP confirms the saved response by reading it back even when Yandex
+  omits its separate organizer delivery receipt. Explicit delivery failures
+  remain errors; this does not claim receipt by the organizer.
+- Exhausted CalDAV replies are checked against the server without another PUT.
+  Confirmed responses leave the queue automatically; unsaved replies stay queued.
+
+### Tests
+- Silent and closed sockets, incomplete responses, split chunk terminators,
+  trailers, malformed chunks and recovery on a fresh connection.
+- Yandex accept/tentative/decline, ignored writes, explicit delivery failures,
+  and read-only recovery after exhausted retries.
+
 ## [0.3.27] - 2026-10-20
 
 ### Fixed

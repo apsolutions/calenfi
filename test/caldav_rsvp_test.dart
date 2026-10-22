@@ -25,6 +25,7 @@ const _account = Account(
   provider: ProviderType.caldav,
   displayName: 'Test',
   email: 'me@example.org',
+  config: AccountConfig(caldavHost: 'calendar.example.org'),
 );
 const _ics = '''BEGIN:VCALENDAR
 VERSION:2.0
@@ -122,8 +123,8 @@ class _Server implements HttpClientAdapter {
   @override
   void close({bool force = false}) {}
 
-  CalDavProvider provider() => CalDavProvider(
-    account: _account,
+  CalDavProvider provider({Account account = _account}) => CalDavProvider(
+    account: account,
     password: 'test',
     dio: Dio()..httpClientAdapter = this,
   );
@@ -147,12 +148,8 @@ CalendarEvent _event({String? recurrenceId, DateTime? start}) => CalendarEvent(
 // Real RSVP transport plus a small pull/CRUD stub to exercise durable queue
 // handling without coupling the fixture to CalDAV discovery and REPORT XML.
 class _SyncProvider extends CalDavProvider {
-  _SyncProvider(this.server)
-    : super(
-        account: _account,
-        password: 'test',
-        dio: Dio()..httpClientAdapter = server,
-      );
+  _SyncProvider(this.server, {super.account = _account})
+    : super(password: 'test', dio: Dio()..httpClientAdapter = server);
   final _Server server;
   CalendarEvent remote = _event();
   int updates = 0;
@@ -198,20 +195,21 @@ class _SyncProvider extends CalDavProvider {
 
 Future<void> _withSync(
   _Server server,
-  Future<void> Function(EventRepository, SyncEngine, _SyncProvider) run,
-) async {
+  Future<void> Function(EventRepository, SyncEngine, _SyncProvider) run, {
+  Account account = _account,
+}) async {
   final db = AppDatabase(NativeDatabase.memory());
   final accounts = AccountRepository(db);
   final events = EventRepository(db);
-  final provider = _SyncProvider(server);
+  final provider = _SyncProvider(server, account: account);
   final sync = SyncEngine(
     registry: ProviderRegistry(overrideFactory: (_) => provider),
     accounts: accounts,
     events: events,
   );
   try {
-    await accounts.upsertAccount(_account);
-    await sync.syncAccount(_account);
+    await accounts.upsertAccount(account);
+    await sync.syncAccount(account);
     await run(events, sync, provider);
   } finally {
     server.readRelease?.complete();
@@ -698,6 +696,85 @@ void main() {
         },
       );
     }
+  }
+
+  final yandex = _account.copyWith(
+    config: const AccountConfig(caldavHost: 'caldav.yandex.ru'),
+  );
+  for (final response in [
+    ResponseStatus.accepted,
+    ResponseStatus.tentative,
+    ResponseStatus.declined,
+  ]) {
+    test(
+      'Yandex $response confirms saved state without a delivery receipt or duplicate PUT',
+      () async {
+        final server = _Server()..deliveryStatus = null;
+        final provider = server.provider(account: yandex);
+        await provider.respondToInvite(yandex, _event(), response);
+        await provider.respondToInvite(yandex, _event(), response);
+        expect(
+          server.requests.where((r) => r.options.method == 'PUT'),
+          hasLength(1),
+        );
+        expect(
+          server.requests
+              .where((r) => r.options.method == 'GET')
+              .every((r) => r.options.headers['Cache-Control'] == 'no-cache'),
+          isTrue,
+        );
+      },
+    );
+  }
+  for (final status in ['1.0', '3.7', '5.1', '5.2']) {
+    test('Yandex explicit delivery status $status remains a failure', () async {
+      final server = _Server()..deliveryStatus = status;
+      await expectLater(
+        server
+            .provider(account: yandex)
+            .respondToInvite(yandex, _event(), ResponseStatus.accepted),
+        throwsStateError,
+      );
+    });
+  }
+  test('Yandex ignored response PUT is never acknowledged', () async {
+    final server = _Server()..deliveryStatus = null;
+    server.afterPut = () => server.body = _ics;
+    await expectLater(
+      server
+          .provider(account: yandex)
+          .respondToInvite(yandex, _event(), ResponseStatus.accepted),
+      throwsStateError,
+    );
+  });
+  for (final saved in [true, false]) {
+    test(
+      'exhausted reply recovery is read-only, server matches=$saved',
+      () async {
+        final server = _Server()..deliveryStatus = null;
+        await _withSync(server, (events, sync, provider) async {
+          final event = _event().copyWith(myResponse: ResponseStatus.accepted);
+          await events.saveAndEnqueue(event, 'rsvp', {
+            'resp': ResponseStatus.accepted.index,
+          });
+          final item = (await events.pendingOutbox()).single;
+          await events.bumpRetry(item.id, 5);
+          if (saved) {
+            server.body = _ics.replaceAll(
+              'PARTSTAT=NEEDS-ACTION',
+              'PARTSTAT=ACCEPTED',
+            );
+          }
+          final report = await sync.syncAccount(yandex);
+          expect(report.ok, saved);
+          expect(await events.pendingOutbox(), saved ? isEmpty : hasLength(1));
+          expect(
+            server.requests.where((r) => r.options.method == 'PUT'),
+            isEmpty,
+          );
+        }, account: yandex);
+      },
+    );
   }
 
   for (final status in ['1.1', '1.2', '2.0']) {

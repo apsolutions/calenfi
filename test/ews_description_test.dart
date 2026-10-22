@@ -11,6 +11,7 @@ class _Bodies extends NtlmHttp {
     : super(user: 'test', password: 'test');
   final String description;
   final String bodyType;
+  int detailsStatus = 200;
   @override
   Future<NtlmResponse> post(
     Uri url, {
@@ -25,6 +26,7 @@ class _Bodies extends NtlmHttp {
         '<m:FindItemResponseMessage $ns><t:CalendarItem><t:ItemId Id="id"/><t:UID>uid</t:UID><t:Subject>Meeting</t:Subject><t:Start>2026-10-20T13:00:00Z</t:Start><t:End>2026-10-20T14:00:00Z</t:End></t:CalendarItem></m:FindItemResponseMessage>',
       );
     }
+    if (detailsStatus != 200) return NtlmResponse(detailsStatus, 'Unavailable');
     final escaped = XmlText(description).toXmlString();
     return NtlmResponse(
       200,
@@ -55,6 +57,34 @@ void main() {
     );
     return result.single.description;
   }
+
+  test(
+    'failed details do not return a successful snapshot without meeting links',
+    () async {
+      final transport = _Bodies('https://video.example.test/join', 'Text')
+        ..detailsStatus = 503;
+      final provider = EwsProvider(
+        account: account,
+        password: 'test',
+        ewsUrlOverride: 'https://example.test/ews',
+        http: transport,
+      );
+      final cal = (await provider.listCalendars(account)).single;
+      final range = DateRange(
+        DateTime.utc(2026, 10, 20),
+        DateTime.utc(2026, 10, 21),
+      );
+      await expectLater(
+        provider.fetchEvents(account, cal, range),
+        throwsA(anything),
+      );
+      transport.detailsStatus = 200;
+      expect(
+        (await provider.fetchEvents(account, cal, range)).single.description,
+        'https://video.example.test/join',
+      );
+    },
+  );
 
   test('hidden meeting href survives GetItem HTML conversion', () async {
     expect(

@@ -17,6 +17,7 @@ import '../../../../domain/models/enums.dart';
 import '../../../../domain/providers/calendar_provider.dart';
 import '../../../../domain/providers/provider_capabilities.dart';
 import '../../../../domain/providers/yandex_caldav.dart';
+import '../../../../services/diag_log.dart';
 import 'ics.dart';
 
 /// Один удалённый .ics-ресурс. Legacy-версии Calenfi могли
@@ -103,7 +104,11 @@ class _RawVEvent {
 
 /// Реальный адаптер CalDAV (Yandex и совместимые). App-password + Basic auth.
 /// Параметры host/port/principal — из [Account.config] (FR-A3).
-class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
+class CalDavProvider
+    implements
+        CalendarProvider,
+        InvitationResponseValidator,
+        InviteResponseVerifier {
   CalDavProvider({required this.account, required this.password, Dio? dio})
     : _dio = dio ?? Dio() {
     _dio.options
@@ -1161,7 +1166,8 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
 
   Future<Response<dynamic>> _readInvite(Uri uri) => _dio.requestUri(
     uri,
-    options: _requestOptions('GET')..followRedirects = false,
+    options: _requestOptions('GET', headers: {'Cache-Control': 'no-cache'})
+      ..followRedirects = false,
   );
 
   @override
@@ -1248,6 +1254,30 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
     _requireReplyDelivered(_replyDeliveryCodes(acc, cal, e, uid, saved));
   }
 
+  @override
+  Future<void> verifyInviteResponse(
+    Account acc,
+    CalendarEvent event,
+    ResponseStatus response,
+  ) async {
+    final uri = await _inviteUri(acc, event, response);
+    final saved = (await _readInvite(uri)).data.toString();
+    final cal = _calOf(event);
+    final uid = _uidOf(acc, cal, event);
+    if (_mergeInviteReply(
+          acc,
+          cal,
+          event,
+          uid,
+          saved,
+          _partstatIcs(response),
+        ) !=
+        saved) {
+      throw StateError('CalDAV: сервер не подтвердил сохранение ответа');
+    }
+    _requireReplyDelivered(_replyDeliveryCodes(acc, cal, event, uid, saved));
+  }
+
   List<String> _replyDeliveryCodes(
     Account acc,
     Calendar cal,
@@ -1293,7 +1323,19 @@ class CalDavProvider implements CalendarProvider, InvitationResponseValidator {
   static bool _deliverySucceeded(String code) =>
       code == '1.1' || code == '1.2' || code == '2.0';
 
-  static void _requireReplyDelivered(List<String> codes) {
+  void _requireReplyDelivered(List<String> codes) {
+    // Yandex advertises calendar-auto-schedule and persists PARTSTAT but omits
+    // ORGANIZER SCHEDULE-STATUS. A fresh read confirms the saved response;
+    // absence of a separate delivery receipt is not a failed calendar write.
+    // Keep strict receipt checks for other servers and all explicit failures.
+    if (codes.isEmpty && isYandexCalDavAccount(account)) {
+      DiagLog.instance.add(
+        'caldav',
+        '${account.id}: Yandex подтвердил сохранение ответа; '
+            'отдельный статус доставки организатору не предоставлен',
+      );
+      return;
+    }
     if (codes.isNotEmpty && codes.every(_deliverySucceeded)) return;
     final reason = codes.isEmpty
         ? 'сервер не сообщил статус доставки'

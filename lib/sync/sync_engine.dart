@@ -486,6 +486,30 @@ class SyncEngine {
       if (item.retryCount >= _maxOutboxRetries) {
         // Но принадлежность СВОЕМУ аккаунту всё равно проверим для отчёта.
         if (current?.source.accountId == acc.id) {
+          // Read-only recovery: a previous PUT may have succeeded even though
+          // its confirmation was lost. Never resend an exhausted operation.
+          if (item.op == 'rsvp' && provider is InviteResponseVerifier) {
+            final sent = events.eventForOperation(item, current!);
+            final responseIndex = int.tryParse(
+              _readInt(item.payloadJson, 'resp') ?? '',
+            );
+            if (responseIndex != null &&
+                responseIndex >= 0 &&
+                responseIndex < ResponseStatus.values.length) {
+              try {
+                await (provider as InviteResponseVerifier).verifyInviteResponse(
+                  acc,
+                  sent,
+                  ResponseStatus.values[responseIndex],
+                );
+                await events.acknowledgeWrite(item, sent, sent);
+                await events.removeOutbox(item.id);
+                continue;
+              } catch (e) {
+                failure ??= 'Изменение не отправлено: ${_describe(e)}';
+              }
+            }
+          }
           blocked.add(effectiveEventId);
           failure ??= 'изменение не отправлено (исчерпаны попытки)';
         }

@@ -133,32 +133,30 @@ class EwsProvider implements CalendarProvider {
 <t:FieldURI FieldURI="calendar:OptionalAttendees"/><t:FieldURI FieldURI="calendar:Resources"/>
 </t:AdditionalProperties>
 </m:ItemShape><m:ItemIds>$idsXml</m:ItemIds></m:GetItem></soap:Body></soap:Envelope>''';
-      try {
-        final xml = await _soap(
-          'http://schemas.microsoft.com/exchange/services/2006/messages/GetItem',
-          req,
+      // Failed details must fail the pull: an incomplete snapshot would erase
+      // cached meeting links and guests while incorrectly reporting success.
+      final xml = await _soap(
+        'http://schemas.microsoft.com/exchange/services/2006/messages/GetItem',
+        req,
+      );
+      final doc = XmlDocument.parse(xml);
+      var j = 0;
+      for (final msg in doc.findAllElements(
+        'GetItemResponseMessage',
+        namespace: _mns,
+      )) {
+        if (j >= chunk.length) break;
+        final body = msg.findAllElements('Body', namespace: _tns).firstOrNull;
+        final t = body == null
+            ? null
+            : body.getAttribute('BodyType') == 'Text'
+            ? body.innerText
+            : _stripHtml(body.innerText);
+        result[chunk[j]] = _EwsDetails(
+          body: (t == null || t.isEmpty) ? null : t,
+          attendees: parseAttendees(msg),
         );
-        final doc = XmlDocument.parse(xml);
-        var j = 0;
-        for (final msg in doc.findAllElements(
-          'GetItemResponseMessage',
-          namespace: _mns,
-        )) {
-          if (j >= chunk.length) break;
-          final body = msg.findAllElements('Body', namespace: _tns).firstOrNull;
-          final t = body == null
-              ? null
-              : body.getAttribute('BodyType') == 'Text'
-              ? body.innerText
-              : _stripHtml(body.innerText);
-          result[chunk[j]] = _EwsDetails(
-            body: (t == null || t.isEmpty) ? null : t,
-            attendees: parseAttendees(msg),
-          );
-          j++;
-        }
-      } catch (_) {
-        /* детали необязательны — без них нет описания и гостей */
+        j++;
       }
     }
     return result;

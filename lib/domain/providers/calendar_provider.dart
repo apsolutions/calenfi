@@ -104,3 +104,13 @@ abstract interface class InvitationResponseValidator {
     ResponseStatus response,
   );
 }
+
+/// Optional read-only recovery for a reply left in the outbox after retries.
+/// Implementations must never send a new reply while verifying persisted state.
+abstract interface class InviteResponseVerifier {
+  Future<void> verifyInviteResponse(
+    Account account,
+    CalendarEvent event,
+    ResponseStatus response,
+  );
+}
