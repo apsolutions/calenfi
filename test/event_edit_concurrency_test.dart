@@ -151,6 +151,21 @@ void main() {
         return g;
       }
 
+      Future<void> expectVisibleResponse(ResponseStatus response) async {
+        final visible = await events
+            .watchMerged(
+              DateRange(DateTime.utc(2026, 10, 18), DateTime.utc(2026, 10, 19)),
+            )
+            .first;
+        if (response == ResponseStatus.declined) {
+          expect(visible, isEmpty);
+        } else {
+          expect(visible, hasLength(1));
+          expect(visible.single.primary.id, initial.id);
+          expect(visible.single.primary.myResponse, response);
+        }
+      }
+
       Future<void> edit(
         CalendarEvent e, {
         RecurrenceScope scope = RecurrenceScope.thisOnly,
@@ -220,6 +235,7 @@ void main() {
             await g.entered.future;
             await EventActions(events, sync).rsvp(initial, response);
             expect((await events.getById(initial.id))!.myResponse, response);
+            await expectVisibleResponse(response);
             final push = sync.syncAccountById(account.id);
             await Future<void>.delayed(Duration.zero);
             g.open();
@@ -229,6 +245,7 @@ void main() {
             expect(server.responses, [response]);
             expect(server.remote!.myResponse, response);
             expect((await events.getById(initial.id))!.myResponse, response);
+            await expectVisibleResponse(response);
             expect(await events.pendingOutbox(), isEmpty);
           },
         );
@@ -248,10 +265,12 @@ void main() {
             );
             expect(await events.pendingOutbox(), hasLength(1));
             expect((await events.getById(initial.id))!.myResponse, response);
+            await expectVisibleResponse(response);
             server.failWrite = false;
             await sync.syncAccount(account);
             expect(server.remote!.id, initial.id);
             expect(server.remote!.myResponse, response);
+            await expectVisibleResponse(response);
             expect(await events.pendingOutbox(), isEmpty);
             expect(server.creates, 0);
           },

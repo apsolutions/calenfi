@@ -27,7 +27,6 @@ class EventBlock extends ConsumerWidget {
     final hasNote = NotesRepository.hasNote(event, noteKeys);
     final pending = e.myResponse == ResponseStatus.needsAction;
     final cancelled = e.isCancelled ||
-        e.myResponse == ResponseStatus.tentative ||
         e.myResponse == ResponseStatus.declined;
     final start = e.startUtc.toLocal();
     final timeLabel =

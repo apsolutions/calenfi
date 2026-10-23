@@ -165,7 +165,6 @@ class _MonthCell extends ConsumerWidget {
     final color = Color(
         e.primary.colorOverride ?? colors[e.primary.calendarId] ?? 0xFF888888);
     final cancelled = e.primary.isCancelled ||
-        e.primary.myResponse == ResponseStatus.tentative ||
         e.primary.myResponse == ResponseStatus.declined;
     return GestureDetector(
       onTap: () => showEventDetails(context, e),

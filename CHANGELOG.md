@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-10-23
+
+### Fixed
+- Maybe/tentative invitations remain visible in the calendar and are no longer
+  crossed out or dimmed as declined meetings. Cancelled, deleted and explicitly
+  declined events retain their existing visibility rules.
+
+### Tests
+- Maybe visibility in both database queries, calendar rendering, and pending,
+  failed and synchronized replies during concurrent refresh for all providers.
+
 ## [0.3.28] - 2026-10-22
 
 ### Fixed

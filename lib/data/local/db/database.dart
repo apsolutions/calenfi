@@ -189,7 +189,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// Реактивный поток событий в диапазоне для видимых календарей (FR-V4).
   ///
-  /// Возвращает confirmed + (опционально) отменённые/удалённые (FR-V12).
+  /// Maybe остаётся видимым; отменённые, удалённые и отклонённые — опционально.
   Stream<List<Event>> watchEventsInRange(
     DateTime startUtc,
     DateTime endUtc, {
@@ -207,7 +207,6 @@ class AppDatabase extends _$AppDatabase {
         ..where(events.deletedRemotely.equals(false))
         ..where(events.status.isNotIn([EventStatus.cancelled.index]))
         ..where(events.myResponse.isNotIn([
-          ResponseStatus.tentative.index,
           ResponseStatus.declined.index,
         ]));
     }
@@ -237,7 +236,6 @@ class AppDatabase extends _$AppDatabase {
         ..where(events.deletedRemotely.equals(false))
         ..where(events.status.isNotIn([EventStatus.cancelled.index]))
         ..where(events.myResponse.isNotIn([
-          ResponseStatus.tentative.index,
           ResponseStatus.declined.index,
         ]));
     }
